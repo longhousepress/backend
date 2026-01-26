@@ -1,4 +1,4 @@
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePool}};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use anyhow::Result;
 
 use crate::models::Book;
@@ -20,8 +20,9 @@ pub async fn load_db() -> Result<SqlitePool> {
 }
 
 pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
-    let books = sqlx::query_as::<_, Book>(
-        "SELECT 
+    let books = sqlx::query_as!(
+        Book,
+        "SELECT
             e.id,
             e.title,
             COALESCE(e.author_name, a.name) as author,
