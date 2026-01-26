@@ -20,8 +20,20 @@ pub async fn load_db() -> Result<SqlitePool> {
 }
 
 pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
-    let books = sqlx::query_as!(Book, "select * from books;")
-        .fetch_all(db).await?;
+    let books = sqlx::query_as::<_, Book>(
+        "SELECT 
+            e.id,
+            e.title,
+            COALESCE(e.author_name, a.name) as author,
+            e.price,
+            e.cover,
+            e.slug
+         FROM editions e
+         INNER JOIN books b ON e.book_id = b.id
+         INNER JOIN authors a ON b.author_id = a.id"
+    )
+    .fetch_all(db)
+    .await?;
 
     Ok(books)
 }
