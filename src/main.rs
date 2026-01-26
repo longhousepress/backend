@@ -1,34 +1,28 @@
-use std::{path::PathBuf, str::FromStr};
-use serde::{Serialize, Deserialize};
-use rocket::serde::json::Json;
+mod db;
+mod models;
+
+use rocket::{serde::json::Json, State, http::Status};
+use sqlx::SqlitePool;
+
+use crate::db::load_db;
+use crate::models::Book;
 
 #[macro_use] extern crate rocket;
 
 #[get("/api/books")]
-fn index() -> Json<Book> {
-    let book = Book {
-        id: 32u32,
-        title: "Thought-dreams".to_string(),
-        author: "D.K.".to_string(),
-        price: 5f32,
-        cover: PathBuf::from_str("/Users/seok/media/covers/organized/cover057.jpg").unwrap(),
-        slug: "thought-dreams-d-k".to_string(),
-    };
-
-    Json(book)
+async fn books(db: &State<SqlitePool>) -> Result<Json<Vec<Book>>, Status> {
+    match db::load_books(&db).await {
+        Ok(books) => Ok(Json(books)),
+        Err(_) => Err(Status::InternalServerError)
+    }
 }
 
 #[launch]
-fn rocket() -> _ {
-    rocket::build().mount("/", routes![index])
-}
+async fn rocket() -> _ {
+    // Load the database once at startup
+    let db = load_db().await.expect("Failed to load database");
 
-#[derive(Serialize, Deserialize)]
-struct Book {
-    id: u32,
-    title: String,
-    author: String,
-    price: f32,
-    cover: PathBuf,
-    slug: String,
+    rocket::build()
+        .manage(db)  // Register the pool as managed state
+        .mount("/", routes![books])
 }
