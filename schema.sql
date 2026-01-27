@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS editions (
     price INTEGER NOT NULL,
     cover TEXT NOT NULL,
     slug TEXT NOT NULL,
+    description TEXT,              -- Book description
     edition_name TEXT,             -- "Revised", "Anniversary", "Deluxe"
     translator TEXT,               -- Nullable for translations
     language TEXT,                 -- ISO 639-3 language + ISO 15924 script tags (e.g., 'eng', 'fra', 'lzh-Hant')
