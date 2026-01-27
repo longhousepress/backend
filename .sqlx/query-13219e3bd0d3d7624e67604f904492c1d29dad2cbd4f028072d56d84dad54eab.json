@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            e.id,\n            e.title,\n            COALESCE(e.author_name, a.name) as author,\n            e.price,\n            e.cover,\n            e.slug\n         FROM editions e\n         INNER JOIN books b ON e.book_id = b.id\n         INNER JOIN authors a ON b.author_id = a.id",
+  "query": "SELECT \n            e.id,\n            e.title,\n            COALESCE(e.author_name, a.name) as author,\n            e.price,\n            e.cover,\n            a.slug || '/' || e.slug as slug\n         FROM editions e\n         INNER JOIN books b ON e.book_id = b.id\n         INNER JOIN authors a ON b.author_id = a.id",
   "describe": {
     "columns": [
       {
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "cda783bcb827aaa324b85b6f022f84100ae8ec46996a371bdf291b63d56e34c3"
+  "hash": "13219e3bd0d3d7624e67604f904492c1d29dad2cbd4f028072d56d84dad54eab"
 }
