@@ -2,14 +2,14 @@
 CREATE TABLE IF NOT EXISTS authors (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,            -- Canonical name (e.g., "Molière")
-    bio TEXT,
-    slug TEXT NOT NULL UNIQUE
+    bio TEXT
 );
 
 -- The abstract "work" - the book as a concept (minimal identity)
 CREATE TABLE IF NOT EXISTS books (
     id INTEGER PRIMARY KEY,
     author_id INTEGER NOT NULL,
+    slug TEXT NOT NULL UNIQUE,     -- Canonical slug for the book (e.g., "don-juan")
     year_published INTEGER,        -- Original publication year
     FOREIGN KEY (author_id) REFERENCES authors(id) ON DELETE RESTRICT
 );
@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS editions (
     isbn TEXT UNIQUE,
     price INTEGER NOT NULL,
     cover TEXT NOT NULL,
-    slug TEXT NOT NULL,
     description TEXT,              -- Book description
     edition_name TEXT,             -- "Revised", "Anniversary", "Deluxe"
     translator TEXT,               -- Nullable for translations

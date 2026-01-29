@@ -1,7 +1,7 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use anyhow::Result;
 
-use crate::models::{Book, BookDetail};
+use crate::models::{Book, BookDetail, Edition};
 
 const DB_SCHEMA: &str = include_str!("../schema.sql");
 const DB_PATH: &str = "db.sqlite3";
@@ -19,19 +19,42 @@ pub async fn load_db() -> Result<SqlitePool> {
     Ok(db)
 }
 
-pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
+pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>> {
+    // Get one edition per book, preferring the requested language
     let books = sqlx::query_as!(
         Book,
-        "SELECT 
-            e.id,
-            e.title,
-            COALESCE(e.author_name, a.name) as author,
-            e.price,
-            e.cover,
-            a.slug || '/' || e.slug as slug
+        "SELECT
+            e.id as \"id!\",
+            e.title as \"title!\",
+            CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author!: String\",
+            e.price as \"price!\",
+            e.cover as \"cover!\",
+            b.slug as \"book_slug!\",
+            f.name as \"format!\",
+            e.language
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
-         INNER JOIN authors a ON b.author_id = a.id"
+         INNER JOIN authors a ON b.author_id = a.id
+         INNER JOIN formats f ON e.format_id = f.id
+         WHERE e.id IN (
+             SELECT COALESCE(
+                 -- First try: requested language
+                 (SELECT e1.id FROM editions e1 
+                  WHERE e1.book_id = b.id AND e1.language = ?
+                  LIMIT 1),
+                 -- Second try: English
+                 (SELECT e2.id FROM editions e2 
+                  WHERE e2.book_id = b.id AND e2.language = 'eng'
+                  LIMIT 1),
+                 -- Last resort: first edition found
+                 (SELECT e3.id FROM editions e3 
+                  WHERE e3.book_id = b.id
+                  LIMIT 1)
+             )
+             FROM books b
+         )
+         ORDER BY b.id",
+        lang
     )
     .fetch_all(db)
     .await?;
@@ -39,47 +62,51 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
     Ok(books)
 }
 
-pub async fn get_book_by_slug(db: &SqlitePool, slug: &str) -> Result<Option<BookDetail>> {
-    // Split slug into author_slug and edition_slug
-    let parts: Vec<&str> = slug.split('/').collect();
-    if parts.len() != 2 {
-        return Ok(None);
-    }
-    let (author_slug, edition_slug) = (parts[0], parts[1]);
+pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<BookDetail>> {
+    // First, get the book info
+    let book_row = sqlx::query!(
+        "SELECT 
+            b.slug as \"book_slug!\",
+            b.year_published,
+            CAST(a.name AS TEXT) as \"author!\",
+            a.bio as author_bio
+         FROM books b
+         INNER JOIN authors a ON b.author_id = a.id
+         WHERE b.slug = ?",
+        book_slug
+    )
+    .fetch_optional(db)
+    .await?;
 
-    // Query the book details
-    let row = sqlx::query!(
+    let Some(book_row) = book_row else {
+        return Ok(None);
+    };
+
+    // Get all editions for this book
+    let editions = sqlx::query_as!(
+        Edition,
         "SELECT 
             e.id as \"id!\",
             e.title as \"title!\",
-            CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author!: String\",
-            a.slug as \"author_slug!\",
-            a.bio as author_bio,
+            e.author_name,
             e.price as \"price!\",
             e.cover as \"cover!\",
-            CAST(a.slug || '/' || e.slug AS TEXT) as \"slug!: String\",
             e.description,
             f.name as \"format!\",
             e.language,
             e.page_count,
             e.translator,
-            b.year_published,
             e.publication_date,
-            e.isbn
+            e.isbn,
+            e.edition_name
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
-         INNER JOIN authors a ON b.author_id = a.id
          INNER JOIN formats f ON e.format_id = f.id
-         WHERE a.slug = ? AND e.slug = ?",
-        author_slug,
-        edition_slug
+         WHERE b.slug = ?",
+        book_slug
     )
-    .fetch_optional(db)
+    .fetch_all(db)
     .await?;
-
-    let Some(row) = row else {
-        return Ok(None);
-    };
 
     // Fetch categories for this book
     let categories = sqlx::query!(
@@ -87,11 +114,8 @@ pub async fn get_book_by_slug(db: &SqlitePool, slug: &str) -> Result<Option<Book
          FROM categories c
          INNER JOIN book_categories bc ON c.id = bc.category_id
          INNER JOIN books b ON bc.book_id = b.id
-         INNER JOIN editions e ON e.book_id = b.id
-         INNER JOIN authors a ON b.author_id = a.id
-         WHERE a.slug = ? AND e.slug = ?",
-        author_slug,
-        edition_slug
+         WHERE b.slug = ?",
+        book_slug
     )
     .fetch_all(db)
     .await?;
@@ -99,22 +123,11 @@ pub async fn get_book_by_slug(db: &SqlitePool, slug: &str) -> Result<Option<Book
     let categories: Vec<String> = categories.into_iter().map(|r| r.name).collect();
 
     Ok(Some(BookDetail {
-        id: row.id,
-        title: row.title,
-        author: row.author,
-        author_slug: row.author_slug,
-        author_bio: row.author_bio,
-        price: row.price,
-        cover: row.cover,
-        slug: row.slug,
-        description: row.description,
-        format: row.format,
-        language: row.language,
-        page_count: row.page_count,
-        translator: row.translator,
-        year_published: row.year_published,
-        publication_date: row.publication_date,
-        isbn: row.isbn,
+        book_slug: book_row.book_slug,
+        year_published: book_row.year_published,
+        author: book_row.author,
+        author_bio: book_row.author_bio,
         categories,
+        editions,
     }))
 }
