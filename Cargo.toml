@@ -9,3 +9,7 @@ rocket = { version = "0.5.1", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 sqlx = { version = "0.8.6", features = [ "runtime-tokio", "tls-native-tls", "sqlite" ] }
 tokio = { version = "1.49.0", features = ["full"] }
+serde_qs = "0.15.0"
+reqwest = { version = "0.13.1" }
+serde_json = "1.0.149"
+rocket_cors = "0.6.0"

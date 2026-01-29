@@ -1,17 +1,29 @@
 mod db;
 mod models;
+mod stripe;
 
 use rocket::{serde::json::Json, State, http::Status};
 use sqlx::SqlitePool;
 
 use crate::db::load_db;
-use crate::models::{Book, BookDetail};
+use crate::models::{Book, BookDetail, CheckoutRequest, CheckoutSession};
+use rocket_cors::{AllowedOrigins, CorsOptions};
 
 #[macro_use] extern crate rocket;
 
 #[derive(FromForm)]
 struct LangQuery {
     lang: Option<String>,
+}
+
+#[post("/api/checkout", data = "<request>")]
+async fn create_checkout_session(db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
+    // take ownership of the parsed request body
+    let req = request.into_inner();
+    match stripe::create_checkout_session(&db, &req).await {
+        Ok(s) => Ok(Json(s)),
+        Err(_) => Err(Status::InternalServerError)
+    }
 }
 
 #[get("/api/books/<slug>", rank = 2)]
@@ -34,10 +46,18 @@ async fn books(db: &State<SqlitePool>, query: LangQuery) -> Result<Json<Vec<Book
 
 #[launch]
 async fn rocket() -> _ {
+	let cors = CorsOptions {
+        allowed_origins: AllowedOrigins::all(), // dev only; restrict in prod
+        ..Default::default()
+    }
+    .to_cors()
+    .expect("CORS setup");
+
     // Load the database once at startup
     let db = load_db().await.expect("Failed to load database");
 
     rocket::build()
-        .manage(db)  // Register the pool as managed state
-        .mount("/", routes![book_detail, books])
+        .manage(db)
+        .attach(cors)  // Register the pool as managed state
+        .mount("/", routes![create_checkout_session, book_detail, books])
 }

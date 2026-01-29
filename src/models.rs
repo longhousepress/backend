@@ -41,3 +41,21 @@ pub struct Edition {
     pub isbn: Option<String>,
     pub edition_name: Option<String>,
 }
+
+// What the front end POSTs to us
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct CheckoutRequest {
+    pub items: Vec<CheckoutItem>,
+}
+
+// What we will return to the front end
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct CheckoutSession {
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct CheckoutItem {
+    pub edition_id: String,
+    pub quantity: u32,
+}
