@@ -17,6 +17,8 @@ struct StripeCheckout {
     success_url: String,
     cancel_url: String,
     line_items: Vec<StripeLineItem>,
+    // Optional client_reference_id so we can attach our internal order_id to the Stripe session
+    client_reference_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -94,15 +96,21 @@ pub async fn create_checkout_body(db: &SqlitePool, req: &CheckoutRequest) -> Res
 }
 
 pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutRequest) -> Result<CheckoutSession> {
-    // Mint a short-lived, single-use token
+    // 1) Persist a pending order in our DB (paid = NULL, no stripe_session_id yet).
+    //    This gives us an internal `order_id` we can attach to the Stripe session.
+    let order_id = req.persist(db.inner(), None, None, Some("GBP")).await?;
+
+    // Mint a short-lived, single-use token (kept for compatibility with existing success flow)
     let token = mint();
 
-    // Assemble the session
+    // Assemble the session, include the order_id as client_reference_id so Stripe will carry it
+    // in metadata and webhooks. Also include order_id in the success_url for convenience.
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
-        success_url: format!("http://localhost:4321/success?tok={token}&session_id={{CHECKOUT_SESSION_ID}}"),
+        success_url: format!("http://localhost:4321/success?order_id={order_id}&tok={token}&session_id={{CHECKOUT_SESSION_ID}}"),
         cancel_url: "http://localhost:4321/failure".into(),
         line_items: create_checkout_body(db.inner(), req).await?,
+        client_reference_id: Some(order_id.to_string()),
     };
 
     // Serialize the typed struct into a nested querystring using serde_qs
@@ -111,7 +119,7 @@ pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutReque
 
     // Send to Stripe
     let client = reqwest::Client::new();
-    let response = client
+    let response_text = client
         .post("https://api.stripe.com/v1/checkout/sessions")
         .header("Authorization", format!("Bearer {}", STRIPE_KEY))
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -121,10 +129,25 @@ pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutReque
         .text()
         .await?;
 
+    // Parse Stripe response to extract session id and url
+    let stripe_json: serde_json::Value = serde_json::from_str(&response_text)?;
+    let session_id = stripe_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("stripe response missing id"))?;
+    let url = stripe_json
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("stripe response missing url"))?
+        .to_string();
 
-    let deserialized_response: CheckoutSession = serde_json::from_str(&response)?;
+    // Update our order row with the stripe session id so we can reconcile later
+    sqlx::query!("UPDATE orders SET stripe_session_id = ? WHERE id = ?", session_id, order_id)
+        .execute(db.inner())
+        .await?;
 
-    Ok(deserialized_response)
+    // Return the same CheckoutSession shape as before (frontend expects { url })
+    Ok(CheckoutSession { url })
 }
 
 pub fn mint() -> String {
