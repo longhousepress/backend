@@ -51,39 +51,35 @@ pub enum CheckoutMode {
     // extend as needed
 }
 
-pub async fn get_edition_name(id: &str, db: &SqlitePool) -> Result<String> {
-    // Parse the provided id (string) into an i64 for SQLite.
-    // If parsing fails, return an error. If the row is not found, return an error as well.
-    let id_i64: i64 = id.parse().map_err(|_| anyhow::anyhow!("invalid edition id: {}", id))?;
+pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
+    // Look up the edition title by numeric id.
     let title_opt = sqlx::query_scalar::<_, String>("SELECT title FROM editions WHERE id = ?")
-        .bind(id_i64)
+        .bind(id)
         .fetch_optional(db)
         .await?;
     match title_opt {
         Some(title) => Ok(title),
-        None => Err(anyhow::anyhow!("edition id {} not found", id_i64)),
+        None => Err(anyhow::anyhow!("edition id {} not found", id)),
     }
 }
 
-pub async fn get_edition_price(id: &str, db: &SqlitePool) -> Result<u32> {
-    // Parse the provided id (string) into an i64 for SQLite.
-    // If parsing fails or the row is not found, return an error.
-    let id_i64: i64 = id.parse().map_err(|_| anyhow::anyhow!("invalid edition id: {}", id))?;
+pub async fn get_edition_price(id: i64, db: &SqlitePool) -> Result<u32> {
+    // Look up the edition price by numeric id.
     let price_opt = sqlx::query_scalar::<_, i64>("SELECT price FROM editions WHERE id = ?")
-        .bind(id_i64)
+        .bind(id)
         .fetch_optional(db)
         .await?;
     match price_opt {
         Some(price) => Ok(price as u32),
-        None => Err(anyhow::anyhow!("edition id {} not found", id_i64)),
+        None => Err(anyhow::anyhow!("edition id {} not found", id)),
     }
 }
 
 pub async fn create_checkout_body(db: &SqlitePool, req: &CheckoutRequest) -> Result<Vec<StripeLineItem>> {
 	let mut items: Vec<StripeLineItem> = Vec::with_capacity(req.items.len());
 	for item in &req.items {
-		let name = get_edition_name(&item.edition_id, db).await?;
-		let unit_amount = get_edition_price(&item.edition_id, db).await?;
+		let name = get_edition_name(item.edition_id, db).await?;
+		let unit_amount = get_edition_price(item.edition_id, db).await?;
 		let final_item = StripeLineItem {
 			quantity: item.quantity,
 			price_data: StripePriceData {
