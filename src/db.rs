@@ -1,4 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::Row;
 use anyhow::Result;
 
 use crate::models::{Book, BookDetail, Edition};
@@ -64,23 +65,34 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
 
 pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<BookDetail>> {
     // First, get the book info
-    let book_row = sqlx::query!(
+    let book_row = sqlx::query(
         "SELECT 
-            b.slug as \"book_slug!\",
+            b.slug as book_slug,
             b.year_published,
-            CAST(a.name AS TEXT) as \"author!\",
+            a.name as author,
             a.bio as author_bio
          FROM books b
          INNER JOIN authors a ON b.author_id = a.id
-         WHERE b.slug = ?",
-        book_slug
+         WHERE b.slug = ?"
     )
+    .bind(book_slug)
     .fetch_optional(db)
     .await?;
 
-    let Some(book_row) = book_row else {
+    let Some(row) = book_row else {
         return Ok(None);
     };
+
+    // Extract columns with runtime checks to avoid sqlx compile-time alias issues
+    let book_slug: String = row.try_get("book_slug")?;
+    let year_published: Option<i64> = row.try_get("year_published")?;
+    // Author is expected to be present in our model; coerce missing author to empty string
+    let author_opt: Option<String> = row.try_get("author")?;
+    let author: String = author_opt.unwrap_or_default();
+    // Some SQLite/driver combinations can produce nested NULL mapping (Option<Option<String>>).
+    // Read the raw value and then flatten to ensure we produce an Option<String>.
+    let author_bio_raw: Option<Option<String>> = row.try_get("author_bio")?;
+    let author_bio: Option<String> = author_bio_raw.flatten();
 
     // Get all editions for this book
     let editions = sqlx::query_as!(
@@ -88,7 +100,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
         "SELECT 
             e.id as \"id!\",
             e.title as \"title!\",
-            e.author_name,
+            CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author_name!: String\",
             e.price as \"price!\",
             e.cover as \"cover!\",
             e.description,
@@ -101,6 +113,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             e.edition_name
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
+         INNER JOIN authors a ON b.author_id = a.id
          INNER JOIN formats f ON e.format_id = f.id
          WHERE b.slug = ?",
         book_slug
@@ -123,10 +136,10 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     let categories: Vec<String> = categories.into_iter().map(|r| r.name).collect();
 
     Ok(Some(BookDetail {
-        book_slug: book_row.book_slug,
-        year_published: book_row.year_published,
-        author: book_row.author,
-        author_bio: book_row.author_bio,
+        book_slug,
+        year_published,
+        author,
+        author_bio,
         categories,
         editions,
     }))

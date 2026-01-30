@@ -29,7 +29,7 @@ pub struct BookDetail {
 pub struct Edition {
     pub id: i64,
     pub title: String,
-    pub author_name: Option<String>,
+    pub author_name: String,
     pub price: i64,
     pub cover: String,
     pub description: Option<String>,
