@@ -74,5 +74,5 @@ async fn rocket() -> _ {
     rocket::build()
         .manage(db)
         .attach(cors)  // Register the pool as managed state
-        .mount("/", routes![create_checkout_session, book_detail, books, download])
+        .mount("/", routes![create_checkout_session, book_detail, books, download, stripe::verify_order_endpoint, stripe::stripe_webhook])
 }
