@@ -1,12 +1,13 @@
 mod db;
 mod models;
 mod stripe;
-
+use rocket::fs::NamedFile;
 use rocket::{serde::json::Json, State, http::Status};
 use sqlx::SqlitePool;
 
 use crate::db::load_db;
 use crate::models::{Book, BookDetail, CheckoutRequest, CheckoutSession};
+use crate::stripe::verify;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 
 #[macro_use] extern crate rocket;
@@ -44,6 +45,20 @@ async fn books(db: &State<SqlitePool>, query: LangQuery) -> Result<Json<Vec<Book
     }
 }
 
+#[get("/api/download/<tok>")]
+async fn download(tok: &str) -> Result<NamedFile, Status> {
+    verify(tok).map_err(|e| {
+        eprintln!("verify error: {:?}", e);   // log it
+        Status::Gone
+    })?;
+    NamedFile::open("static/Astrophel and Stella.epub")
+        .await
+        .map_err(|e| {
+            eprintln!("file error: {:?}", e);
+            Status::InternalServerError
+        })
+}
+
 #[launch]
 async fn rocket() -> _ {
 	let cors = CorsOptions {
@@ -59,5 +74,5 @@ async fn rocket() -> _ {
     rocket::build()
         .manage(db)
         .attach(cors)  // Register the pool as managed state
-        .mount("/", routes![create_checkout_session, book_detail, books])
+        .mount("/", routes![create_checkout_session, book_detail, books, download])
 }
