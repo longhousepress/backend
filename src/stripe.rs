@@ -104,7 +104,7 @@ pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutReque
     // Assemble the session
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
-        success_url: format!("http://localhost:4321/success?tok={token}"),
+        success_url: format!("http://localhost:4321/success?tok={token}&session_id={{CHECKOUT_SESSION_ID}}"),
         cancel_url: "http://localhost:4321/failure".into(),
         line_items: create_checkout_body(db.inner(), req).await?,
     };
