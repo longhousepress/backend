@@ -107,17 +107,17 @@ pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutReque
     //    This gives us an internal `order_id` we can attach to the Stripe session.
     let order_id = req.persist(db.inner(), None, None, Some("GBP")).await?;
 
-    // Mint a short-lived, single-use token (kept for compatibility with existing success flow)
-    let token = mint();
-
     // Assemble the session, include the order_id as client_reference_id so Stripe will carry it
-    // in metadata and webhooks. Also include order_id in the success_url for convenience.
+    // in metadata and webhooks. The success_url intentionally does NOT include a short-lived token:
+    // the frontend should call the server's verify endpoint using the returned session id to avoid
+    // race conditions with webhooks. Server-side verification will create the persistent DB download tokens.
     let mut pi_metadata = std::collections::HashMap::new();
     pi_metadata.insert("order_id".to_string(), order_id.to_string());
 
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
-        success_url: format!("http://localhost:4321/success?order_id={order_id}&tok={token}&session_id={{CHECKOUT_SESSION_ID}}"),
+        // Remove temporary token from success URL to avoid relying on client-visible short-lived tokens.
+        success_url: format!("http://localhost:4321/success?order_id={order_id}&session_id={{CHECKOUT_SESSION_ID}}"),
         cancel_url: "http://localhost:4321/failure".into(),
         line_items: create_checkout_body(db.inner(), req).await?,
         client_reference_id: Some(order_id.to_string()),
@@ -267,11 +267,52 @@ pub async fn verify_stripe_checkout_session_and_mark_paid(
     Ok(is_paid)
 }
 
+/// Create single-use, time-limited download tokens for every edition on an order.
+///
+/// This function is idempotent: if tokens already exist for the order, it returns immediately.
+pub async fn create_download_tokens_for_order(pool: &SqlitePool, order_id: i64) -> Result<()> {
+    // If tokens already exist for this order, do nothing (idempotent)
+    let existing_count: i64 = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM download_tokens WHERE order_id = ?"
+    )
+    .bind(order_id)
+    .fetch_one(pool)
+    .await?;
+
+    if existing_count > 0 {
+        return Ok(());
+    }
+
+    // Fetch editions for this order
+    let items = sqlx::query!("SELECT edition_id FROM order_items WHERE order_id = ?", order_id)
+        .fetch_all(pool)
+        .await?;
+
+    for r in items {
+        let edition_id = r.edition_id;
+        // Mint a token (reusing existing mint() function)
+        let token = mint();
+
+        // Insert token with 7-day expiry (RFC3339 format using SQLite strftime)
+        sqlx::query!(
+            "INSERT INTO download_tokens (order_id, edition_id, token, expires_at) \
+             VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%SZ','now','+7 days')))",
+            order_id,
+            edition_id,
+            token
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
 /// A convenience HTTP endpoint you can mount to verify an order's Stripe session on demand.
-/// Example: POST /api/order/1/verify?session_id=cs_test_...
+/// Example: POST /api/order/:id/verify?session_id=cs_test_...
 ///
 /// Note: this endpoint is synchronous and returns a simple body:
-/// - 200 with body "paid" if the session was confirmed and DB updated
+/// - 200 with body "paid" if the session was confirmed and DB was updated,
 /// - 403 if the session is not paid or metadata mismatched
 /// - 500 on error
 #[post("/api/order/<order_id>/verify?<session_id>")]
@@ -279,9 +320,41 @@ pub async fn verify_order_endpoint(
     db: &State<SqlitePool>,
     order_id: i64,
     session_id: String,
-) -> Result<String, rocket::http::Status> {
+) -> Result<rocket::serde::json::Json<serde_json::Value>, rocket::http::Status> {
     match verify_stripe_checkout_session_and_mark_paid(db.inner(), order_id, &session_id).await {
-        Ok(true) => Ok("paid".to_string()),
+        Ok(true) => {
+            // Ensure download tokens exist immediately to avoid race with webhook processing.
+            if let Err(e) = create_download_tokens_for_order(db.inner(), order_id).await {
+                eprintln!("Error creating download tokens for order {}: {:?}", order_id, e);
+                // Don't fail the verify request just because token creation failed; we'll still attempt to read tokens.
+            }
+
+            // Fetch tokens and edition titles for this order
+            let rows = sqlx::query!(
+                "SELECT dt.token, dt.expires_at, e.title \
+                 FROM download_tokens dt \
+                 INNER JOIN editions e ON dt.edition_id = e.id \
+                 WHERE dt.order_id = ?",
+                order_id
+            )
+            .fetch_all(db.inner())
+            .await
+            .map_err(|e| { eprintln!("db error: {:?}", e); rocket::http::Status::InternalServerError })?;
+
+            let mut list = Vec::with_capacity(rows.len());
+            for r in rows {
+                let token = r.token;
+                let url = format!("/api/download/{}", token);
+                list.push(serde_json::json!({
+                    "token": token,
+                    "url": url,
+                    "title": r.title,
+                    "expires_at": r.expires_at
+                }));
+            }
+
+            Ok(rocket::serde::json::Json(serde_json::Value::Array(list)))
+        }
         Ok(false) => Err(rocket::http::Status::Forbidden),
         Err(e) => {
             eprintln!("stripe verify error: {:?}", e);
@@ -332,18 +405,41 @@ pub async fn stripe_webhook(
                     .await
                 {
                     Ok(opt) => {
+                        // We'll track whether verification succeeded so we can create tokens
+                        let mut verified = false;
+
                         if let Some(session_id) = opt.flatten() {
-                            if let Err(e) = verify_stripe_checkout_session_and_mark_paid(db.inner(), order_id, &session_id).await {
-                                eprintln!("Error verifying session for order {}: {:?}", order_id, e);
-                                return Err(rocket::http::Status::InternalServerError);
+                            match verify_stripe_checkout_session_and_mark_paid(db.inner(), order_id, &session_id).await {
+                                Ok(true) => { verified = true; }
+                                Ok(false) => {
+                                    eprintln!("Webhook: session {} not paid according to Stripe", session_id);
+                                }
+                                Err(e) => {
+                                    eprintln!("Error verifying session for order {}: {:?}", order_id, e);
+                                    return Err(rocket::http::Status::InternalServerError);
+                                }
                             }
                         } else {
                             // No session id recorded yet; if payload contains a session id use it
                             if let Some(sid) = session_id_opt.as_deref() {
-                                if let Err(e) = verify_stripe_checkout_session_and_mark_paid(db.inner(), order_id, sid).await {
-                                    eprintln!("Error verifying session (fallback) for order {}: {:?}", order_id, e);
-                                    return Err(rocket::http::Status::InternalServerError);
+                                match verify_stripe_checkout_session_and_mark_paid(db.inner(), order_id, sid).await {
+                                    Ok(true) => { verified = true; }
+                                    Ok(false) => {
+                                        eprintln!("Webhook: session {} not paid according to Stripe", sid);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error verifying session (fallback) for order {}: {:?}", order_id, e);
+                                        return Err(rocket::http::Status::InternalServerError);
+                                    }
                                 }
+                            }
+                        }
+
+                        // If we verified payment, attempt to create download tokens (idempotent)
+                        if verified {
+                            if let Err(e) = create_download_tokens_for_order(db.inner(), order_id).await {
+                                eprintln!("Error creating download tokens for order {}: {:?}", order_id, e);
+                                // Don't fail the webhook just because token creation failed; we logged the error
                             }
                         }
                     }
@@ -361,9 +457,19 @@ pub async fn stripe_webhook(
                 {
                     Ok(found_opt) => {
                         if let Some(found_order_id) = found_opt {
-                            if let Err(e) = verify_stripe_checkout_session_and_mark_paid(db.inner(), found_order_id, &session_id).await {
-                                eprintln!("Error verifying session for order {}: {:?}", found_order_id, e);
-                                return Err(rocket::http::Status::InternalServerError);
+                            match verify_stripe_checkout_session_and_mark_paid(db.inner(), found_order_id, &session_id).await {
+                                Ok(true) => {
+                                    if let Err(e) = create_download_tokens_for_order(db.inner(), found_order_id).await {
+                                        eprintln!("Error creating download tokens for order {}: {:?}", found_order_id, e);
+                                    }
+                                }
+                                Ok(false) => {
+                                    eprintln!("Webhook: session {} not paid according to Stripe", session_id);
+                                }
+                                Err(e) => {
+                                    eprintln!("Error verifying session for order {}: {:?}", found_order_id, e);
+                                    return Err(rocket::http::Status::InternalServerError);
+                                }
                             }
                         } else {
                             // No matching order found; ignore or log and continue
