@@ -133,7 +133,6 @@ dependencies = [
  "dotenvy",
  "hex",
  "hmac",
- "hmac-sha256",
  "rand 0.9.2",
  "reqwest",
  "rocket",
@@ -143,6 +142,7 @@ dependencies = [
  "serde_qs",
  "sha2",
  "sqlx",
+ "subtle",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -846,12 +846,6 @@ checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest",
 ]
-
-[[package]]
-name = "hmac-sha256"
-version = "1.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0f0ae375a85536cac3a243e3a9cda80a47910348abdea7e2c22f8ec556d586d"
 
 [[package]]
 name = "home"

@@ -1,6 +1,7 @@
 use rand::{rng, RngCore};
 use anyhow::Result as AnyhowResult;
-use hmac_sha256::HMAC;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sqlx::SqlitePool;
 use rocket::State;
@@ -209,8 +210,11 @@ pub fn mint(filepath: &str, token_key: &str) -> String {
     payload.extend_from_slice(&(path_bytes.len() as u16).to_be_bytes());
     payload.extend_from_slice(path_bytes);
 
-    // 3) sign
-    let sig = HMAC::mac(&payload, token_key.as_bytes());
+    // 3) sign with HMAC-SHA256
+    let mut mac = Hmac::<Sha256>::new_from_slice(token_key.as_bytes())
+        .expect("HMAC can take key of any size");
+    mac.update(&payload);
+    let sig = mac.finalize().into_bytes();
     payload.extend_from_slice(&sig);
 
     URL_SAFE_NO_PAD.encode(&payload)

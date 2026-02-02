@@ -1,4 +1,6 @@
-use hmac_sha256::HMAC;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rocket::http::Status;
 use rocket::fs::NamedFile;
@@ -7,6 +9,9 @@ use rocket::{Request, State};
 use std::path::Path;
 use tracing::{error, warn};
 use crate::config::Config;
+
+// HMAC-SHA256 produces 32-byte (256-bit) signatures
+const HMAC_SHA256_OUTPUT_SIZE: usize = 32;
 
 #[get("/api/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
@@ -39,28 +44,25 @@ pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
     let buf = URL_SAFE_NO_PAD.decode(tok)
         .map_err(|_| "bad base64".to_string())?;
 
-    // Expect at minimum: header (18 bytes) + signature (32 bytes)
-    const MIN_PAYLOAD_AND_SIG: usize = 18 + 32;
+    // Expect at minimum: header (18 bytes) + signature (HMAC-SHA256)
+    const MIN_PAYLOAD_AND_SIG: usize = 18 + HMAC_SHA256_OUTPUT_SIZE;
     if buf.len() < MIN_PAYLOAD_AND_SIG {
         return Err("token too short".to_string());
     }
 
-    // Split payload and signature (last 32 bytes are signature)
-    let sig_len: usize = 32;
-    let (payload, received_sig) = buf.split_at(buf.len() - sig_len);
+    // Split payload and signature (last bytes are HMAC-SHA256 signature)
+    let (payload, received_sig) = buf.split_at(buf.len() - HMAC_SHA256_OUTPUT_SIZE);
 
-    // Compute expected signature
-    let expected_sig = HMAC::mac(payload, token_key.as_bytes());
+    // Compute expected signature using HMAC-SHA256
+    let mut mac = Hmac::<Sha256>::new_from_slice(token_key.as_bytes())
+        .map_err(|_| "invalid key".to_string())?;
+    mac.update(payload);
+    let expected_sig = mac.finalize().into_bytes();
 
     // Constant-time comparison to avoid leaking timing info
-    if expected_sig.len() != received_sig.len() {
-        return Err("signature mismatch".to_string());
-    }
-    let mut diff: u8 = 0;
-    for (a, b) in expected_sig.iter().zip(received_sig.iter()) {
-        diff |= a ^ b;
-    }
-    if diff != 0 {
+    if received_sig.ct_eq(expected_sig.as_slice()).into() {
+        // Signature is valid, proceed to parse the payload
+    } else {
         return Err("signature mismatch".to_string());
     }
 

@@ -1,6 +1,7 @@
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use rocket::State;
 use sqlx::SqlitePool;
 
@@ -109,7 +110,12 @@ fn verify_stripe_signature(payload: &[u8], signature_header: &str, secret: &str)
     mac.update(signed_payload.as_bytes());
     let expected = hex::encode(mac.finalize().into_bytes());
 
-    if signatures.iter().any(|s| s == &expected) {
+    // Use constant-time comparison to prevent timing attacks
+    let valid = signatures.iter().any(|s| {
+        s.as_bytes().ct_eq(expected.as_bytes()).into()
+    });
+
+    if valid {
         Ok(())
     } else {
         Err(anyhow::anyhow!("Stripe signature verification failed"))
