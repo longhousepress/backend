@@ -13,6 +13,7 @@ use std::path::Path;
 
 use crate::db::load_db;
 use crate::stripe::checkout::{CheckoutRequest, CheckoutSession};
+use crate::stripe::download::verify;
 use crate::models::Book;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 
@@ -73,14 +74,17 @@ impl<'r> Responder<'r, 'static> for DownloadResponder {
 
 #[get("/api/download/<tok>")]
 async fn download(db: &State<SqlitePool>, tok: &str) -> Result<DownloadResponder, Status> {
-    // Treat `tok` as a download token: verify signature and serve the underlying file.
-    crate::stripe::download::verify(tok).map_err(|_| Status::Gone)?;
+    // Check if the token is valid
+    match verify(tok) {
+        Ok(_) => (),
+        Err(_) => return Err(Status::Gone)
+    };
 
-    // Resolve the token -> edition -> file_path, ensuring token is not expired (if expiry present)
+    // It is valid, get the file that it gives access to
     let file_row = sqlx::query!(
         "SELECT f.file_path FROM download_tokens dt \
          INNER JOIN files f ON dt.file_id = f.id \
-         WHERE dt.token = ? AND (dt.expires_at IS NULL OR dt.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ','now')) LIMIT 1",
+         WHERE dt.token = ? LIMIT 1",
         tok
     )
     .fetch_optional(db.inner())
