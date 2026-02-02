@@ -82,6 +82,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
                 publication_date: None,
                 isbn: None,
                 edition_name: None,
+                files: None,
             };
 
             Book {
@@ -192,6 +193,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             publication_date: r.publication_date.flatten(),
             isbn: r.isbn.flatten(),
             edition_name: r.edition_name.flatten(),
+            files: None
         })
         .collect();
 
