@@ -2,7 +2,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
 use anyhow::Result;
 
-use crate::models::{Book, BookDetail, Edition};
+use crate::models::{Book, Edition};
 
 const DB_SCHEMA: &str = include_str!("../schema.sql");
 const DB_PATH: &str = "db.sqlite3";
@@ -21,18 +21,20 @@ pub async fn load_db() -> Result<SqlitePool> {
 }
 
 pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>> {
-    // Get one edition per book, preferring the requested language
-    let books = sqlx::query_as!(
-        Book,
+    // Get one edition per book, preferring the requested language.
+    // Construct `Edition` and `Book` manually because listing returns one
+    // representative edition per book; populate edition fields we have and
+    // leave other fields with sensible defaults for a catalog listing.
+    let rows = sqlx::query!(
         "SELECT
-            e.id as \"id!\",
-            e.title as \"title!\",
-            CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author!: String\",
-            e.price as \"price!\",
-            e.cover as \"cover!\",
-            b.slug as \"book_slug!\",
-            f.name as \"format!\",
-            e.language
+            e.id as id,
+            e.title as title,
+            CAST(COALESCE(e.author_name, a.name) AS TEXT) as author,
+            e.price as price,
+            e.cover as cover,
+            b.slug as book_slug,
+            f.name as format,
+            e.language as language
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN authors a ON b.author_id = a.id
@@ -60,15 +62,46 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
     .fetch_all(db)
     .await?;
 
+    let books: Vec<Book> = rows
+        .into_iter()
+        .map(|r| {
+            // Build a minimal Edition from the selected columns to include in Book.editions
+            let edition = Edition {
+                id: r.id,
+                title: r.title,
+                author_name: r.author,
+                author_bio: None,
+                price: r.price,
+                cover: r.cover,
+                description: None,
+                categories: Vec::new(),
+                format: r.format,
+                language: r.language,
+                page_count: None,
+                translator: None,
+                publication_date: None,
+                isbn: None,
+                edition_name: None,
+            };
+
+            Book {
+                id: r.id,
+                title: edition.title.clone(),
+                author: edition.author_name.clone(),
+                book_slug: r.book_slug,
+                editions: vec![edition],
+            }
+        })
+        .collect();
+
     Ok(books)
 }
 
-pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<BookDetail>> {
-    // First, get the book info
+pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<Book>> {
+    // First, get the book & author info
     let book_row = sqlx::query(
         "SELECT
             b.slug as book_slug,
-            b.year_published,
             a.name as author,
             a.bio as author_bio
          FROM books b
@@ -83,34 +116,31 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
         return Ok(None);
     };
 
-    // Extract columns with runtime checks to avoid sqlx compile-time alias issues
+    // Extract basic book columns
     let book_slug: String = row.try_get("book_slug")?;
-    let year_published: Option<i64> = row.try_get("year_published")?;
-    // Author is expected to be present in our model; coerce missing author to empty string
     let author_opt: Option<String> = row.try_get("author")?;
     let author: String = author_opt.unwrap_or_default();
-    // Some SQLite/driver combinations can produce nested NULL mapping (Option<Option<String>>).
-    // Read the raw value and then flatten to ensure we produce an Option<String>.
+    // author_bio will be attached to each edition below
     let author_bio_raw: Option<Option<String>> = row.try_get("author_bio")?;
     let author_bio: Option<String> = author_bio_raw.flatten();
 
-    // Get all editions for this book
-    let editions = sqlx::query_as!(
-        Edition,
+    // Get all editions for this book (we'll map rows -> Edition and attach categories)
+    // Annotate column aliases with explicit types so `sqlx::query!` can infer correct Rust types.
+    let edition_rows = sqlx::query!(
         "SELECT
-            e.id as \"id!\",
-            e.title as \"title!\",
+            e.id as \"id!: i64\",
+            e.title as \"title!: String\",
             CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author_name!: String\",
-            e.price as \"price!\",
-            e.cover as \"cover!\",
-            e.description,
-            f.name as \"format!\",
-            e.language,
-            e.page_count,
-            e.translator,
-            e.publication_date,
-            e.isbn,
-            e.edition_name
+            e.price as \"price!: i64\",
+            e.cover as \"cover!: String\",
+            e.description as \"description: Option<String>\",
+            f.name as \"format!: String\",
+            e.language as \"language: Option<String>\",
+            e.page_count as \"page_count: Option<i64>\",
+            e.translator as \"translator: Option<String>\",
+            e.publication_date as \"publication_date: Option<String>\",
+            e.isbn as \"isbn: Option<String>\",
+            e.edition_name as \"edition_name: Option<String>\"
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN authors a ON b.author_id = a.id
@@ -121,8 +151,12 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     .fetch_all(db)
     .await?;
 
-    // Fetch categories for this book
-    let categories = sqlx::query!(
+    if edition_rows.is_empty() {
+        return Ok(None);
+    }
+
+    // Fetch categories for this book (categories are stored per book)
+    let cat_rows = sqlx::query!(
         "SELECT c.name
          FROM categories c
          INNER JOIN book_categories bc ON c.id = bc.category_id
@@ -133,14 +167,42 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     .fetch_all(db)
     .await?;
 
-    let categories: Vec<String> = categories.into_iter().map(|r| r.name).collect();
+    let categories: Vec<String> = cat_rows.into_iter().map(|r| r.name).collect();
 
-    Ok(Some(BookDetail {
-        book_slug,
-        year_published,
+    // Map the edition rows into Edition structs and attach author_bio and categories.
+    // Some sqlx query! aliases can produce nested Option<Option<T>> for nullable columns;
+    // flatten those so the Edition fields get Option<T>.
+    let editions: Vec<Edition> = edition_rows
+        .into_iter()
+        .map(|r| Edition {
+            id: r.id,
+            title: r.title,
+            author_name: r.author_name,
+            // attach the author's bio from the book-level query
+            author_bio: author_bio.clone(),
+            price: r.price,
+            cover: r.cover,
+            // Flatten nested options that can arise from the query macro
+            description: r.description.flatten(),
+            categories: categories.clone(),
+            format: r.format,
+            language: r.language.flatten(),
+            page_count: r.page_count.flatten(),
+            translator: r.translator.flatten(),
+            publication_date: r.publication_date.flatten(),
+            isbn: r.isbn.flatten(),
+            edition_name: r.edition_name.flatten(),
+        })
+        .collect();
+
+    // Use the first edition as representative for top-level Book fields
+    let rep = &editions[0];
+
+    Ok(Some(Book {
+        id: rep.id,
+        title: rep.title.clone(),
         author,
-        author_bio,
-        categories,
+        book_slug,
         editions,
     }))
 }

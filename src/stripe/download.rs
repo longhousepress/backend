@@ -1,5 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
-use rand::Rng;
+use rand::{rng, RngCore};
 use anyhow::Result;
 use hmac_sha256::HMAC;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -19,15 +19,15 @@ pub fn mint() -> String {
 
     let mut buf = [0u8; 56];
     // 1. random nonce
-    rand::rng().fill(&mut buf[..16]);
+    rng().fill_bytes(&mut buf[..16]);
     // 2. expiry
     buf[16..24].copy_from_slice(&expire_ts.to_be_bytes());
     // 3. sign
     let secret = std::env::var("TOKEN_KEY").expect("TOKEN_KEY not set");
-    let sig = hmac_sha256::HMAC::mac(&buf[..24], secret.as_bytes());
-    buf[24..].copy_from_slice(&sig);
+    let sig = HMAC::mac(&buf[..24], secret.as_bytes());
+    buf[24..].copy_from_slice(&sig[..]);
     // 4. url-safe base64
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf)
+    URL_SAFE_NO_PAD.encode(&buf)
 }
 
 pub fn verify(tok: &str) -> Result<(), String> {
@@ -36,7 +36,7 @@ pub fn verify(tok: &str) -> Result<(), String> {
     if buf.len() != 56 { return Err("buf.len() is not 56".to_string()); }
     let secret = std::env::var("TOKEN_KEY").unwrap();
     let sig = HMAC::mac(&buf[..24], secret.as_bytes());
-    if sig != buf[24..] { return Err("error here: if sig != buf[24..]".to_string()); }
+    if sig.as_slice() != &buf[24..] { return Err("signature mismatch".to_string()); }
 
     let expire_ts = u64::from_be_bytes(buf[16..24].try_into().unwrap());
     let now = SystemTime::now()
@@ -47,7 +47,7 @@ pub fn verify(tok: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    Err("end".to_string())
+    Err("token expired".to_string())
 }
 
 /// Create time-limited download tokens for every edition on an order. Idempotent.
@@ -71,19 +71,27 @@ pub async fn create_download_tokens_for_order(pool: &SqlitePool, order_id: i64) 
 
     for r in items {
         let edition_id = r.edition_id;
-        // Mint a token (reusing existing mint() function)
-        let token = mint();
+        // For each file associated with the edition, mint a token and insert referencing file_id
+        let file_rows = sqlx::query!("SELECT id FROM files WHERE edition_id = ?", edition_id)
+            .fetch_all(pool)
+            .await?;
 
-        // Insert token with 7-day expiry (RFC3339 format using SQLite strftime)
-        sqlx::query!(
-            "INSERT INTO download_tokens (order_id, edition_id, token, expires_at) \
-             VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%SZ','now','+7 days')))",
-            order_id,
-            edition_id,
-            token
-        )
-        .execute(pool)
-        .await?;
+        for f in file_rows {
+            let file_id = f.id;
+            // Mint a token (reusing existing mint() function)
+            let token = mint();
+
+            // Insert token with 7-day expiry (RFC3339 format using SQLite strftime)
+            sqlx::query!(
+                "INSERT INTO download_tokens (order_id, file_id, token, expires_at) \
+                 VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%SZ','now','+7 days')))",
+                order_id,
+                file_id,
+                token
+            )
+            .execute(pool)
+            .await?;
+        }
     }
 
     Ok(())
@@ -122,7 +130,8 @@ pub async fn verify_order_endpoint(db: &State<SqlitePool>, session_id: String) -
     let rows = sqlx::query!(
         "SELECT dt.token, dt.expires_at, e.title \
          FROM download_tokens dt \
-         INNER JOIN editions e ON dt.edition_id = e.id \
+         INNER JOIN files f ON dt.file_id = f.id \
+         INNER JOIN editions e ON f.edition_id = e.id \
          WHERE dt.order_id = ?",
          id
     )

@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::db::load_db;
 use crate::stripe::checkout::{CheckoutRequest, CheckoutSession};
-use crate::models::{Book, BookDetail};
+use crate::models::Book;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 
 const REQUIRED_VARS: [&str; 3] = ["TOKEN_KEY", "STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET"];
@@ -35,7 +35,7 @@ async fn checkout(db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Res
 }
 
 #[get("/api/books/<slug>", rank = 2)]
-async fn book_detail(db: &State<SqlitePool>, slug: String) -> Result<Json<BookDetail>, Status> {
+async fn book_detail(db: &State<SqlitePool>, slug: String) -> Result<Json<Book>, Status> {
     match db::get_book_by_slug(&db, &slug).await {
         Ok(Some(book)) => Ok(Json(book)),
         Ok(None) => Err(Status::NotFound),
@@ -59,8 +59,8 @@ async fn download(db: &State<SqlitePool>, tok: &str) -> Result<NamedFile, Status
 
     // Resolve the token -> edition -> file_path, ensuring token is not expired (if expiry present)
     let file_row = sqlx::query!(
-        "SELECT e.file_path FROM download_tokens dt \
-         INNER JOIN editions e ON dt.edition_id = e.id \
+        "SELECT f.file_path FROM download_tokens dt \
+         INNER JOIN files f ON dt.file_id = f.id \
          WHERE dt.token = ? AND (dt.expires_at IS NULL OR dt.expires_at > strftime('%Y-%m-%dT%H:%M:%SZ','now')) LIMIT 1",
         tok
     )
@@ -100,7 +100,8 @@ async fn downloads_for_order(db: &State<SqlitePool>, order_id: i64) -> Result<Js
     let rows = sqlx::query!(
         "SELECT dt.token, dt.expires_at, e.title \
          FROM download_tokens dt \
-         INNER JOIN editions e ON dt.edition_id = e.id \
+         INNER JOIN files f ON dt.file_id = f.id \
+         INNER JOIN editions e ON f.edition_id = e.id \
          WHERE dt.order_id = ?",
         order_id
     )
