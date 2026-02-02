@@ -6,10 +6,11 @@ use rocket::State;
 use sqlx::SqlitePool;
 
 use rocket::request::{self, FromRequest, Request};
-use tracing::{error, warn};
 
 use crate::config::Config;
 use crate::db::mark_order_paid;
+use crate::stripe::verify_order::get_downloadable_books_for_order;
+use crate::email::send_purchase_email;
 
 /// Webhook endpoint to receive Stripe events.
 #[post("/webhook", data = "<payload>")]
@@ -20,6 +21,8 @@ pub async fn stripe_webhook(
     signature: StripeSignature,
     content_type: ContentType,
 ) -> Result<rocket::http::Status, rocket::http::Status> {
+    info!("Webhook received");
+
     // Validate Content-Type
     if !content_type.is_json() {
         warn!("Webhook rejected: invalid Content-Type");
@@ -40,6 +43,7 @@ pub async fn stripe_webhook(
         })?;
 
     let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or_default();
+    info!("Webhook event type: {}", event_type);
 
     if event_type == "checkout.session.completed" {
         let deserialized_response: CheckoutSessionCompleted = serde_json::from_value(json)
@@ -51,6 +55,8 @@ pub async fn stripe_webhook(
         let session_id = deserialized_response.data.object.id;
         let customer_email = deserialized_response.data.object.customer_details.email;
         let payment_status = deserialized_response.data.object.payment_status;
+
+        info!("Processing checkout.session.completed for session {} with payment status {}", session_id, payment_status);
 
         // Look up the order by stripe_session_id
         let order_id = sqlx::query_scalar::<_, i64>("SELECT id FROM orders WHERE stripe_session_id = ?")
@@ -67,11 +73,33 @@ pub async fn stripe_webhook(
             })?;
 
         if payment_status == "paid" {
+            info!("Marking order {} as paid", order_id);
             mark_order_paid(db.inner(), order_id, &customer_email).await
                 .map_err(|e| {
                     error!("Error marking order {} paid: {:?}", order_id, e);
                     rocket::http::Status::InternalServerError
                 })?;
+
+            // Send purchase confirmation email with download links
+            info!("Fetching downloadable books for order {}", order_id);
+            match get_downloadable_books_for_order(config, db.inner(), order_id).await {
+                Ok(books) => {
+                    info!("Got {} books for order {}, attempting to send email", books.len(), order_id);
+                    match send_purchase_email(config, &customer_email, order_id, &books).await {
+                        Ok(_) => {
+                            info!("Email for order #{} sent successfully to {}", order_id, customer_email);
+                        }
+                        Err(e) => {
+                            error!("Failed to send purchase email for order {}: {:?}", order_id, e);
+                            // Continue processing - don't fail the webhook for email errors
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to get downloadable books for order {} email: {:?}", order_id, e);
+                    // Continue processing - don't fail the webhook for email errors
+                }
+            }
         }
     }
 

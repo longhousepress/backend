@@ -5,6 +5,7 @@ mod stripe;
 mod download;
 mod catalog;
 mod book_detail;
+mod email;
 
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
@@ -26,11 +27,11 @@ async fn rocket() -> _ {
 
 	// Initialize logging to file
 	let file_appender = RollingFileAppender::new(Rotation::DAILY, &config.log_path, "dragon.log");
-	let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+	let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 	
 	tracing_subscriber::registry()
 		.with(fmt::layer().with_writer(non_blocking).with_ansi(false))
-		.with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+		.with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("backend=info")))
 		.init();
 
 	info!("Dragon backend starting up");
@@ -56,6 +57,7 @@ async fn rocket() -> _ {
     rocket::build()
         .manage(config)
         .manage(db)
+        .manage(guard)
         .attach(cors)
         .mount("/", routes![
             stripe::verify_order::verify_order_endpoint,
