@@ -3,13 +3,14 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rocket::http::Status;
 use rocket::fs::NamedFile;
 use rocket::response::{Responder, Result as RespResult};
-use rocket::Request;
+use rocket::{Request, State};
 use std::path::Path;
+use crate::config::Config;
 
 #[get("/api/download/<tok>")]
-pub async fn download(tok: &str) -> Result<DownloadResponder, Status> {
+pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
     // Verify the token and extract the filepath from its payload
-    let file_path = match verify(tok) {
+    let file_path = match verify(tok, &config.token_key) {
         Ok(p) => p,
         Err(_) => return Err(Status::Gone),
     };
@@ -29,7 +30,7 @@ pub async fn download(tok: &str) -> Result<DownloadResponder, Status> {
     Ok(DownloadResponder { file: named_file, filename })
 }
 
-pub fn verify(tok: &str) -> Result<String, String> {
+pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
     // Decode base64 token
     let buf = URL_SAFE_NO_PAD.decode(tok)
         .map_err(|_| "bad base64".to_string())?;
@@ -40,16 +41,12 @@ pub fn verify(tok: &str) -> Result<String, String> {
         return Err("token too short".to_string());
     }
 
-    // Load secret
-    let secret = std::env::var("TOKEN_KEY")
-        .map_err(|_| "missing TOKEN_KEY".to_string())?;
-
     // Split payload and signature (last 32 bytes are signature)
     let sig_len: usize = 32;
     let (payload, received_sig) = buf.split_at(buf.len() - sig_len);
 
     // Compute expected signature
-    let expected_sig = HMAC::mac(payload, secret.as_bytes());
+    let expected_sig = HMAC::mac(payload, token_key.as_bytes());
 
     // Constant-time comparison to avoid leaking timing info
     if expected_sig.len() != received_sig.len() {

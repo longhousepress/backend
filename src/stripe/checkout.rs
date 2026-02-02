@@ -4,14 +4,15 @@ use sqlx::sqlite::SqlitePool;
 use sqlx::FromRow;
 use rocket::{serde::json::Json, State, http::Status};
 
+use crate::config::Config;
 use crate::db::{get_edition_name, get_edition_price};
 
 
 #[post("/api/checkout", data = "<request>")]
-pub async fn checkout(db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
+pub async fn checkout(config: &State<Config>, db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
     // take ownership of the parsed request body
     let req = request.into_inner();
-    match create_checkout_session(&db, &req).await {
+    match create_checkout_session(config, &db, &req).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
         	eprintln!("Error when creating a checkout session: {}", e);
@@ -20,7 +21,7 @@ pub async fn checkout(db: &State<SqlitePool>, request: Json<CheckoutRequest>) ->
     }
 }
 
-pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutRequest) -> Result<CheckoutSession> {
+pub async fn create_checkout_session(config: &State<Config>, db: &State<SqlitePool>, req: &CheckoutRequest) -> Result<CheckoutSession> {
     // Persist a pending order in the DB and get its number
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
@@ -38,7 +39,7 @@ pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutReque
     let client = reqwest::Client::new();
     let response = client
         .post("https://api.stripe.com/v1/checkout/sessions")
-        .header("Authorization", format!("Bearer {}", std::env::var("STRIPE_API_KEY")?))
+        .header("Authorization", format!("Bearer {}", config.stripe_api_key))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(encoded)
         .send()
@@ -65,18 +66,18 @@ pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutReque
     	Ok(_) => Ok(CheckoutSession { url }),
      	// If the DB insert fails, we need to clean up the dangling session
     	Err(e) => {
-     		let _ = expire_stripe_session(&stripe_session_id).await;
+     		let _ = expire_stripe_session(config, &stripe_session_id).await;
        		Err(e)
      	}
     }
 }
 
-async fn expire_stripe_session(id: &str) -> Result<()> {
+async fn expire_stripe_session(config: &Config, id: &str) -> Result<()> {
  // Send to Stripe
     let client = reqwest::Client::new();
     client
         .post(format!("https://api.stripe.com/v1/checkout/sessions/{id}/expire"))
-        .header("Authorization", format!("Bearer {}", std::env::var("STRIPE_API_KEY")?))
+        .header("Authorization", format!("Bearer {}", config.stripe_api_key))
         .send()
         .await?;
 

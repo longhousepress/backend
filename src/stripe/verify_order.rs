@@ -4,6 +4,7 @@ use hmac_sha256::HMAC;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sqlx::SqlitePool;
 use crate::State;
+use crate::config::Config;
 use crate::models::{Book, Edition, File, FileFormat};
 use rocket::serde::json::Json;
 use serde::Serialize;
@@ -37,6 +38,7 @@ impl<'r> Responder<'r, 'static> for ErrorResponse {
 // HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
 #[get("/api/order/verify?<session_id>")]
 pub async fn verify_order_endpoint(
+    config: &State<Config>,
     db: &State<SqlitePool>,
     session_id: String,
 ) -> std::result::Result<Json<SuccessReturn>, ErrorResponse> {
@@ -78,7 +80,7 @@ pub async fn verify_order_endpoint(
     }
 
     // Build downloadable books from the order
-    let books = match get_downloadable_books_for_order(db.inner(), order_id).await {
+    let books = match get_downloadable_books_for_order(config, db.inner(), order_id).await {
         Ok(b) => b,
         Err(e) => {
             eprintln!("error building downloadable metadata for order {}: {}", order_id, e);
@@ -98,7 +100,7 @@ pub async fn verify_order_endpoint(
 /// Retrieve downloadable books for a given order.
 /// Queries order_items directly to get all editions purchased, then builds
 /// the downloadable metadata with minted tokens for each file.
-pub async fn get_downloadable_books_for_order(db: &SqlitePool, order_id: i64) -> AnyhowResult<Vec<Book>> {
+pub async fn get_downloadable_books_for_order(config: &Config, db: &SqlitePool, order_id: i64) -> AnyhowResult<Vec<Book>> {
     // Query all editions for this order with book and author info
     let edition_rows = sqlx::query!(
         "SELECT
@@ -152,7 +154,7 @@ pub async fn get_downloadable_books_for_order(db: &SqlitePool, order_id: i64) ->
             };
 
             // Mint a download token on-demand for this filepath
-            let token = mint(&fr.file_path);
+            let token = mint(&fr.file_path, &config.token_key);
             let url = format!("/api/download/{}", token);
             files.push(File { format: fmt, path: url });
         }
@@ -193,7 +195,7 @@ pub async fn get_downloadable_books_for_order(db: &SqlitePool, order_id: i64) ->
 }
 
 // Mint a unique download token
-pub fn mint(filepath: &str) -> String {
+pub fn mint(filepath: &str, token_key: &str) -> String {
     let mut payload = Vec::new();
 
     // 1) random nonce (16 bytes) - just for uniqueness
@@ -207,8 +209,7 @@ pub fn mint(filepath: &str) -> String {
     payload.extend_from_slice(path_bytes);
 
     // 3) sign
-    let secret = std::env::var("TOKEN_KEY").expect("TOKEN_KEY not set");
-    let sig = HMAC::mac(&payload, secret.as_bytes());
+    let sig = HMAC::mac(&payload, token_key.as_bytes());
     payload.extend_from_slice(&sig);
 
     URL_SAFE_NO_PAD.encode(&payload)

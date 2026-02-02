@@ -6,19 +6,18 @@ use sqlx::SqlitePool;
 
 use rocket::request::{self, FromRequest, Request};
 
+use crate::config::Config;
 use crate::db::mark_order_paid;
 
 /// Webhook endpoint to receive Stripe events.
 #[post("/webhook", data = "<payload>")]
 pub async fn stripe_webhook(
+    config: &State<Config>,
     db: &State<SqlitePool>,
     payload: String,
     signature: StripeSignature,
 ) -> Result<rocket::http::Status, rocket::http::Status> {
-    let secret = std::env::var("STRIPE_WEBHOOK_SECRET")
-        .map_err(|_| rocket::http::Status::InternalServerError)?;
-
-    verify_stripe_signature(payload.as_bytes(), &signature.0, &secret)
+    verify_stripe_signature(payload.as_bytes(), &signature.0, &config.stripe_webhook_secret)
         .map_err(|e| {
             eprintln!("Webhook signature verification failed: {:?}", e);
             rocket::http::Status::Unauthorized

@@ -1,3 +1,4 @@
+mod config;
 mod db;
 mod models;
 mod stripe;
@@ -9,9 +10,8 @@ use rocket::State;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
 
+use crate::config::Config;
 use crate::db::load_db;
-
-const REQUIRED_VARS: [&str; 3] = ["TOKEN_KEY", "STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET"];
 
 #[macro_use] extern crate rocket;
 #[launch]
@@ -19,10 +19,8 @@ async fn rocket() -> _ {
 	// Load .env and crash immediately if it's not there
 	dotenvy::dotenv().expect("Failed to load .env");
 
-	// Crash if any of the expected env vars are missing
-	if let Some(missing) = REQUIRED_VARS.iter().find(|v| std::env::var(v).is_err()) {
-    	panic!("Missing required environment variable: {}", missing);
-	}
+	// Load config and crash immediately if any required env vars are missing
+	let config = Config::from_env();
 
     // Load db and crash immediately if we can't
     let db = load_db().await.expect("Failed to load database");
@@ -38,8 +36,9 @@ async fn rocket() -> _ {
 
 	// And launch
     rocket::build()
+        .manage(config)
         .manage(db)
-        .attach(cors)  // Register the pool as managed state
+        .attach(cors)
         .mount("/", routes![
             stripe::verify_order::verify_order_endpoint,
             stripe::checkout::checkout,
