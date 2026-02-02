@@ -8,45 +8,81 @@ use crate::models::{Book, Edition, File, FileFormat};
 use rocket::serde::json::Json;
 use serde::Serialize;
 use rocket::http::Status;
+use rocket::response::{Responder, Response};
+use rocket::Request;
+
+/// Small responder type to send an HTTP status and optionally include the order id
+/// in a custom header (used when returning 410 Gone).
+pub enum ErrorResponse {
+    Status(Status),
+    WithOrder { status: Status, order_id: i64 },
+}
+
+impl<'r> Responder<'r, 'static> for ErrorResponse {
+    fn respond_to(self, _req: &'r Request<'_>) -> rocket::response::Result<'static> {
+        let mut rb = Response::build();
+        match self {
+            ErrorResponse::Status(s) => {
+                rb.status(s);
+            }
+            ErrorResponse::WithOrder { status, order_id } => {
+                rb.status(status);
+                rb.raw_header("X-Order-Id", order_id.to_string());
+            }
+        }
+        Ok(rb.finalize())
+    }
+}
 
 // HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
 #[get("/api/order/verify?<session_id>")]
-pub async fn verify_order_endpoint(db: &State<SqlitePool>, session_id: String) -> std::result::Result<Json<SuccessReturn>, Status> {
+pub async fn verify_order_endpoint(
+    db: &State<SqlitePool>,
+    session_id: String,
+) -> std::result::Result<Json<SuccessReturn>, ErrorResponse> {
     // Look up the order by Stripe session id
     let row = sqlx::query!("SELECT id, paid, paid_at, email FROM orders WHERE stripe_session_id = ?", session_id)
         .fetch_one(db.inner())
         .await
-        .map_err(|e| { eprintln!("db error: {:?}", e); Status::InternalServerError })?;
+        .map_err(|e| {
+            eprintln!("db error: {:?}", e);
+            ErrorResponse::Status(Status::InternalServerError)
+        })?;
+
+    // Extract order id early so we can include it in the Gone response header if needed
+    let order_id = match row.id {
+        Some(id) => id,
+        None => return Err(ErrorResponse::Status(Status::InternalServerError)),
+    };
 
     // Must be paid (webhook already validated this with Stripe)
     if row.paid != Some(1) {
-        return Err(Status::PaymentRequired);
+        return Err(ErrorResponse::Status(Status::PaymentRequired));
     }
 
     // Check if the order was paid more than 15 minutes ago
     if let Some(paid_at_str) = row.paid_at {
         let paid_at = paid_at_str.parse::<chrono::DateTime<chrono::Utc>>()
-            .map_err(|e| { eprintln!("failed to parse paid_at: {:?}", e); Status::InternalServerError })?;
+            .map_err(|e| {
+                eprintln!("failed to parse paid_at: {:?}", e);
+                ErrorResponse::Status(Status::InternalServerError)
+            })?;
 
         let now = chrono::Utc::now();
         let elapsed = now.signed_duration_since(paid_at);
 
         if elapsed > chrono::Duration::minutes(15) {
-            return Err(Status::Gone);
+            // Return 410 Gone with X-Order-Id header
+            return Err(ErrorResponse::WithOrder { status: Status::Gone, order_id });
         }
     }
-
-    let order_id = match row.id {
-        Some(id) => id,
-        None => return Err(Status::InternalServerError),
-    };
 
     // Build downloadable books from the order
     let books = match get_downloadable_books_for_order(db.inner(), order_id).await {
         Ok(b) => b,
         Err(e) => {
             eprintln!("error building downloadable metadata for order {}: {}", order_id, e);
-            return Err(Status::InternalServerError);
+            return Err(ErrorResponse::Status(Status::InternalServerError));
         }
     };
 
