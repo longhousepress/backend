@@ -13,7 +13,7 @@ use rocket::http::Status;
 #[get("/api/order/verify?<session_id>")]
 pub async fn verify_order_endpoint(db: &State<SqlitePool>, session_id: String) -> std::result::Result<Json<SuccessReturn>, Status> {
     // Look up the order by Stripe session id
-    let row = sqlx::query!("SELECT id, paid, email FROM orders WHERE stripe_session_id = ?", session_id)
+    let row = sqlx::query!("SELECT id, paid, paid_at, email FROM orders WHERE stripe_session_id = ?", session_id)
         .fetch_one(db.inner())
         .await
         .map_err(|e| { eprintln!("db error: {:?}", e); Status::InternalServerError })?;
@@ -21,6 +21,19 @@ pub async fn verify_order_endpoint(db: &State<SqlitePool>, session_id: String) -
     // Must be paid (webhook already validated this with Stripe)
     if row.paid != Some(1) {
         return Err(Status::PaymentRequired);
+    }
+
+    // Check if the order was paid more than 15 minutes ago
+    if let Some(paid_at_str) = row.paid_at {
+        let paid_at = paid_at_str.parse::<chrono::DateTime<chrono::Utc>>()
+            .map_err(|e| { eprintln!("failed to parse paid_at: {:?}", e); Status::InternalServerError })?;
+
+        let now = chrono::Utc::now();
+        let elapsed = now.signed_duration_since(paid_at);
+
+        if elapsed > chrono::Duration::minutes(15) {
+            return Err(Status::Gone);
+        }
     }
 
     let order_id = match row.id {
