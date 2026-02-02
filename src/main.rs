@@ -7,9 +7,7 @@ use rocket::{serde::json::Json, State, http::Status};
 use rocket::response::{Responder, Result as RespResult};
 use rocket::Request;
 use sqlx::SqlitePool;
-use serde_json::json;
 use std::path::Path;
-
 
 use crate::db::load_db;
 use crate::stripe::checkout::{CheckoutRequest, CheckoutSession};
@@ -95,51 +93,6 @@ async fn download(tok: &str) -> Result<DownloadResponder, Status> {
     Ok(DownloadResponder { file: named_file, filename })
 }
 
-#[get("/api/downloads/order/<order_id>")]
-async fn downloads_for_order(db: &State<SqlitePool>, order_id: i64) -> Result<Json<serde_json::Value>, Status> {
-    // Ensure the order exists and is marked paid (paid == 1)
-    let row_opt = sqlx::query!("SELECT paid FROM orders WHERE id = ?", order_id)
-        .fetch_optional(db.inner())
-        .await
-        .map_err(|e| { eprintln!("db error: {:?}", e); Status::InternalServerError })?;
-
-    let paid_val = match row_opt {
-        Some(r) => r.paid,
-        None => return Err(Status::NotFound),
-    };
-
-    if paid_val != Some(1) {
-        return Err(Status::Forbidden);
-    }
-
-    // Fetch tokens and edition titles for this order
-    let rows = sqlx::query!(
-        "SELECT dt.token, dt.expires_at, e.title \
-         FROM download_tokens dt \
-         INNER JOIN files f ON dt.file_id = f.id \
-         INNER JOIN editions e ON f.edition_id = e.id \
-         WHERE dt.order_id = ?",
-        order_id
-    )
-    .fetch_all(db.inner())
-    .await
-    .map_err(|e| { eprintln!("db error: {:?}", e); Status::InternalServerError })?;
-
-    let mut list = Vec::with_capacity(rows.len());
-    for r in rows {
-        let token = r.token;
-        let url = format!("/api/download/{}", token);
-        list.push(json!({
-            "token": token,
-            "url": url,
-            "title": r.title,
-            "expires_at": r.expires_at
-        }));
-    }
-
-    Ok(Json(json!(list)))
-}
-
 #[launch]
 async fn rocket() -> _ {
 	// Load .env and crash immediately if it's not there
@@ -165,5 +118,5 @@ async fn rocket() -> _ {
     rocket::build()
         .manage(db)
         .attach(cors)  // Register the pool as managed state
-        .mount("/", routes![stripe::download::verify_order_endpoint, checkout, book_detail, books, download, downloads_for_order, stripe::webhook::stripe_webhook])
+        .mount("/", routes![stripe::download::verify_order_endpoint, checkout, book_detail, books, download, stripe::webhook::stripe_webhook])
 }
