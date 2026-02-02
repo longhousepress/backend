@@ -3,7 +3,7 @@ use anyhow::Result as AnyhowResult;
 use hmac_sha256::HMAC;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use sqlx::SqlitePool;
-use crate::State;
+use rocket::State;
 use crate::config::Config;
 use crate::models::{Book, Edition, File, FileFormat};
 use rocket::serde::json::Json;

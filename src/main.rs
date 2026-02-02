@@ -6,7 +6,6 @@ mod download;
 mod catalog;
 mod book_detail;
 
-use rocket::State;
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
 
