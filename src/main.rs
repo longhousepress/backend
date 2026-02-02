@@ -73,27 +73,11 @@ impl<'r> Responder<'r, 'static> for DownloadResponder {
 }
 
 #[get("/api/download/<tok>")]
-async fn download(db: &State<SqlitePool>, tok: &str) -> Result<DownloadResponder, Status> {
-    // Check if the token is valid
-    match verify(tok) {
-        Ok(_) => (),
-        Err(_) => return Err(Status::Gone)
-    };
-
-    // It is valid, get the file that it gives access to
-    let file_row = sqlx::query!(
-        "SELECT f.file_path FROM download_tokens dt \
-         INNER JOIN files f ON dt.file_id = f.id \
-         WHERE dt.token = ? LIMIT 1",
-        tok
-    )
-    .fetch_optional(db.inner())
-    .await
-    .map_err(|e| { eprintln!("db lookup error: {:?}", e); Status::InternalServerError })?;
-
-    let file_path = match file_row {
-        Some(r) => r.file_path,
-        None => return Err(Status::NotFound),
+async fn download(tok: &str) -> Result<DownloadResponder, Status> {
+    // Verify the token and extract the filepath from its payload
+    let file_path = match verify(tok) {
+        Ok(p) => p,
+        Err(_) => return Err(Status::Gone),
     };
 
     let named_file = NamedFile::open(&file_path).await.map_err(|e| {

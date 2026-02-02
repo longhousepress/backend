@@ -1,17 +1,14 @@
 use hmac::{Hmac, Mac};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use rocket::State;
 use sqlx::SqlitePool;
 
-use crate::stripe::download::create_download_tokens_for_order;
+use rocket::request::{self, FromRequest, Request};
+
 use crate::db::mark_order_paid;
 
-/// Webhook endpoint to receive Stripe events. For security we do not trust the incoming
-/// webhook payload alone — instead we extract the order/session identifiers from the
-/// event and verify the session status with Stripe server-side before marking an order paid.
-///
-/// Forward the Stripe CLI to this path for local testing:
-/// stripe listen --forward-to localhost:8000/webhook --events checkout.session.completed,payment_intent.succeeded
+/// Webhook endpoint to receive Stripe events.
 #[post("/webhook", data = "<payload>")]
 pub async fn stripe_webhook(
     db: &State<SqlitePool>,
@@ -37,43 +34,38 @@ pub async fn stripe_webhook(
     let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or_default();
 
     if event_type == "checkout.session.completed" {
-            if let Some(obj) = json.get("data").and_then(|d| d.get("object")) {
-                let session_id = obj.get("id")
-                    .and_then(|v| v.as_str())
-                    .ok_or(rocket::http::Status::BadRequest)?;
+        let deserialized_response: CheckoutSessionCompleted = serde_json::from_value(json)
+            .map_err(|e| {
+                eprintln!("Could not deserialize checkout.session.completed webhook event: {e}");
+                rocket::http::Status::InternalServerError
+            })?;
 
-                let payment_status = obj.get("payment_status")
-                    .and_then(|v| v.as_str())
-                    .ok_or(rocket::http::Status::BadRequest)?;
+        let session_id = deserialized_response.data.object.id;
+        let customer_email = deserialized_response.data.object.customer_details.email;
+        let payment_status = deserialized_response.data.object.payment_status;
 
-                // Look up the order by stripe_session_id
-                let order_id = sqlx::query_scalar::<_, i64>(
-                    "SELECT id FROM orders WHERE stripe_session_id = ?"
-                )
-                    .bind(session_id)
-                    .fetch_optional(db.inner())
-                    .await
-                    .map_err(|e| {
-                        eprintln!("DB error looking up order for session {}: {:?}", session_id, e);
-                        rocket::http::Status::InternalServerError
-                    })?
-                    .ok_or_else(|| {
-                        eprintln!("Webhook: no matching order for session {}", session_id);
-                        rocket::http::Status::Ok
-                    })?;
+        // Look up the order by stripe_session_id
+        let order_id = sqlx::query_scalar::<_, i64>("SELECT id FROM orders WHERE stripe_session_id = ?")
+            .bind(&session_id)
+            .fetch_optional(db.inner())
+            .await
+            .map_err(|e| {
+                eprintln!("DB error looking up order for session {}: {:?}", session_id, e);
+                rocket::http::Status::InternalServerError
+            })?
+            .ok_or_else(|| {
+                eprintln!("Webhook: no matching order for session {}", session_id);
+                rocket::http::Status::Ok
+            })?;
 
-                if payment_status == "paid" {
-                    if let Err(e) = mark_order_paid(db.inner(), order_id).await {
-                        eprintln!("Error marking order {} paid: {:?}", order_id, e);
-                        return Err(rocket::http::Status::InternalServerError);
-                    }
-
-                    if let Err(e) = create_download_tokens_for_order(db.inner(), order_id).await {
-                        eprintln!("Error creating download tokens for order {}: {:?}", order_id, e);
-                    }
-                }
-            }
+        if payment_status == "paid" {
+            mark_order_paid(db.inner(), order_id, &customer_email).await
+                .map_err(|e| {
+                    eprintln!("Error marking order {} paid: {:?}", order_id, e);
+                    rocket::http::Status::InternalServerError
+                })?;
         }
+    }
 
     Ok(rocket::http::Status::Ok)
 }
@@ -117,8 +109,27 @@ fn verify_stripe_signature(payload: &[u8], signature_header: &str, secret: &str)
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct CheckoutSessionCompleted {
+    data: CheckoutSessionCompletedData,
+}
 
-use rocket::request::{self, FromRequest, Request};
+#[derive(Serialize, Deserialize)]
+struct CheckoutSessionCompletedData {
+    object: CheckoutSessionCompletedObject,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CheckoutSessionCompletedObject {
+    id: String,
+    payment_status: String,
+    customer_details: CheckoutSessionCompletedObjectCustomerDetails,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CheckoutSessionCompletedObjectCustomerDetails {
+    email: String,
+}
 
 pub struct StripeSignature(pub String);
 

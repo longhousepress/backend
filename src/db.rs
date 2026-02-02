@@ -1,6 +1,7 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Row;
 use anyhow::Result;
+use chrono::Utc;
 
 use crate::models::{Book, Edition};
 
@@ -234,9 +235,12 @@ pub async fn get_edition_price(id: i64, db: &SqlitePool) -> Result<u32> {
     }
 }
 
-pub async fn mark_order_paid(pool: &SqlitePool, order_id: i64) -> Result<()> {
+pub async fn mark_order_paid(pool: &SqlitePool, order_id: i64, email: &str) -> Result<()> {
+    let now = Utc::now();
     sqlx::query!(
-        "UPDATE orders SET paid = 1, paid_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now')) WHERE id = ?",
+        "UPDATE orders SET paid = 1, paid_at = ?, email = ? WHERE id = ?",
+        now,
+        email,
         order_id
     )
     .execute(pool)

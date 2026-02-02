@@ -1,4 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use rand::{rng, RngCore};
 use anyhow::Result as AnyhowResult;
 use hmac_sha256::HMAC;
@@ -10,203 +9,93 @@ use rocket::serde::json::Json;
 use serde::Serialize;
 use rocket::http::Status;
 
-/// Mint a short-lived, URL-safe token (internal format)
-pub fn mint() -> String {
-    const TOKEN_TTL_SECS: u64 = 15 * 60; // 15 minutes
-    let expire_ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + TOKEN_TTL_SECS;
-
-    let mut buf = [0u8; 56];
-    // 1) random nonce
-    rng().fill_bytes(&mut buf[..16]);
-    // 2) expiry (8 bytes)
-    buf[16..24].copy_from_slice(&expire_ts.to_be_bytes());
-    // 3) sign (HMAC-SHA256)
-    let secret = std::env::var("TOKEN_KEY").expect("TOKEN_KEY not set");
-    let sig = HMAC::mac(&buf[..24], secret.as_bytes());
-    buf[24..].copy_from_slice(&sig[..]);
-    // 4) encode URL-safe without padding
-    URL_SAFE_NO_PAD.encode(&buf)
-}
-
-/// Verify token structure, signature and expiry
-pub fn verify(tok: &str) -> Result<(), String> {
-    let buf = URL_SAFE_NO_PAD.decode(tok)
-        .map_err(|_| "bad base64".to_string())?;
-    if buf.len() != 56 { return Err("buf.len() is not 56".to_string()); }
-    let secret = std::env::var("TOKEN_KEY").map_err(|_| "missing TOKEN_KEY".to_string())?;
-    let sig = HMAC::mac(&buf[..24], secret.as_bytes());
-    if sig.as_slice() != &buf[24..] { return Err("signature mismatch".to_string()); }
-
-    let expire_ts = u64::from_be_bytes(buf[16..24].try_into().unwrap());
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH).unwrap()
-        .as_secs();
-
-    if expire_ts >= now {
-        Ok(())
-    } else {
-        Err("token expired".to_string())
-    }
-}
-
-/// Create download tokens for every file on every edition sold in an order.
-/// Idempotent: if tokens already exist for the order, do nothing.
-pub async fn create_download_tokens_for_order(pool: &SqlitePool, order_id: i64) -> AnyhowResult<()> {
-    // If tokens already exist for this order, do nothing
-    let existing_count: i64 = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM download_tokens WHERE order_id = ?"
-    )
-    .bind(order_id)
-    .fetch_one(pool)
-    .await?;
-
-    if existing_count > 0 {
-        return Ok(());
-    }
-
-    // Get the edition IDs on the order
-    let items = sqlx::query!("SELECT edition_id FROM order_items WHERE order_id = ?", order_id)
-        .fetch_all(pool)
-        .await?;
-
-    for r in items {
-        let edition_id = r.edition_id;
-        // Find files for the edition
-        let file_rows = sqlx::query!("SELECT id FROM files WHERE edition_id = ?", edition_id)
-            .fetch_all(pool)
-            .await?;
-
-        for f in file_rows {
-            let file_id = f.id;
-            let token = mint();
-            // Insert token with 7-day expiry (SQLite strftime)
-            sqlx::query!(
-                "INSERT INTO download_tokens (order_id, file_id, token, expires_at) \
-                 VALUES (?, ?, ?, (strftime('%Y-%m-%dT%H:%M:%SZ','now','+7 days')))",
-                order_id,
-                file_id,
-                token
-            )
-            .execute(pool)
-            .await?;
-        }
-    }
-
-    Ok(())
-}
-
-/// HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
-/// Returns JSON array of minimal `Book` objects describing editions/files available for download.
-///
-/// Note: this handler returns a Rocket `Result<T, Status>` (not `anyhow::Result`).
+// HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
 #[get("/api/order/verify?<session_id>")]
 pub async fn verify_order_endpoint(db: &State<SqlitePool>, session_id: String) -> std::result::Result<Json<SuccessReturn>, Status> {
     // Look up the order by Stripe session id
-    let row = sqlx::query!("SELECT id, paid FROM orders WHERE stripe_session_id = ?", session_id)
+    let row = sqlx::query!("SELECT id, paid, email FROM orders WHERE stripe_session_id = ?", session_id)
         .fetch_one(db.inner())
         .await
         .map_err(|e| { eprintln!("db error: {:?}", e); Status::InternalServerError })?;
 
-    // Must be paid
+    // Must be paid (webhook already validated this with Stripe)
     if row.paid != Some(1) {
         return Err(Status::PaymentRequired);
     }
 
-    let id = match row.id {
+    let order_id = match row.id {
         Some(id) => id,
         None => return Err(Status::InternalServerError),
     };
 
-    // Ensure download tokens exist
-    if let Err(e) = create_download_tokens_for_order(db.inner(), id).await {
-        eprintln!("Could not create download tokens for order {}: {}", id, e);
-        return Err(Status::InternalServerError);
-    }
-
-    // Fetch Stripe checkout session to obtain customer email and client_reference_id (order reference)
-    let stripe_resp_text = {
-        let client = reqwest::Client::new();
-        let res = client
-            .get(format!("https://api.stripe.com/v1/checkout/sessions/{}", session_id))
-            .header("Authorization", format!("Bearer {}", std::env::var("STRIPE_API_KEY").unwrap_or_default()))
-            .send()
-            .await
-            .map_err(|e| { eprintln!("stripe API error: {:?}", e); Status::InternalServerError })?;
-
-        if !res.status().is_success() {
-            eprintln!("stripe API returned {}", res.status());
+    // Build downloadable books from the order
+    let books = match get_downloadable_books_for_order(db.inner(), order_id).await {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error building downloadable metadata for order {}: {}", order_id, e);
             return Err(Status::InternalServerError);
         }
-
-        res.text().await.map_err(|e| { eprintln!("stripe resp text error: {:?}", e); Status::InternalServerError })?
-    };
-
-    let stripe_json: serde_json::Value = serde_json::from_str(&stripe_resp_text)
-        .map_err(|e| { eprintln!("stripe JSON parse error: {:?}", e); Status::InternalServerError })?;
-
-    // Determine customer email and order reference (prefer client_reference_id)
-    let customer_email = stripe_json
-        .get("customer_details")
-        .and_then(|cd| cd.get("email"))
-        .and_then(|v| v.as_str())
-        .or_else(|| stripe_json.get("customer_email").and_then(|v| v.as_str()))
-        .unwrap_or("")
-        .to_string();
-
-    let client_ref = stripe_json
-        .get("client_reference_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    // Fetch distinct book slugs for the order
-    let slug_rows = sqlx::query!(
-        "SELECT DISTINCT b.slug as \"slug!: String\"
-         FROM order_items oi
-         INNER JOIN editions e ON oi.edition_id = e.id
-         INNER JOIN books b ON e.book_id = b.id
-         WHERE oi.order_id = ?",
-         id
-    )
-    .fetch_all(db.inner())
-    .await
-    .map_err(|e| { eprintln!("db error: {:?}", e); Status::InternalServerError })?;
-
-    let mut books: Vec<Book> = Vec::new();
-    for s in slug_rows {
-        let slug = s.slug;
-        match get_downloadable_book(db.inner(), &slug, id).await {
-            Ok(mut bvec) => books.append(&mut bvec),
-            Err(e) => {
-                eprintln!("error building downloadable metadata for {}: {}", &slug, e);
-                return Err(Status::InternalServerError);
-            }
-        }
-    }
-
-    // order_reference: prefer client_reference_id from Stripe, fall back to internal order id
-    let order_reference = match client_ref {
-        Some(c) => c,
-        None => id.to_string(),
     };
 
     let out = SuccessReturn {
-        email: customer_email,
-        order_reference,
+        email: row.email.unwrap_or_default(),
+        order_reference: order_id.to_string(),
         books,
     };
 
     Ok(Json(out))
 }
 
-/// Retrieve a minimal Book representation for the given book slug.
-/// Each returned Book includes editions with only the fields required for downloads:
-/// cover, title, format, language, and `files` listing available file formats + paths.
-pub async fn get_downloadable_book(db: &SqlitePool, book_slug: &str, order_id: i64) -> AnyhowResult<Vec<Book>> {
-    // Query editions for the given book slug, include author_name fallback and format
+// Mint a unique download token
+pub fn mint(filepath: &str) -> String {
+    let mut payload = Vec::new();
+
+    // 1) random nonce (16 bytes) - just for uniqueness
+    let mut nonce = [0u8; 16];
+    rng().fill_bytes(&mut nonce);
+    payload.extend_from_slice(&nonce);
+
+    // 2) filepath length (2 bytes) + filepath
+    let path_bytes = filepath.as_bytes();
+    payload.extend_from_slice(&(path_bytes.len() as u16).to_be_bytes());
+    payload.extend_from_slice(path_bytes);
+
+    // 3) sign
+    let secret = std::env::var("TOKEN_KEY").expect("TOKEN_KEY not set");
+    let sig = HMAC::mac(&payload, secret.as_bytes());
+    payload.extend_from_slice(&sig);
+
+    URL_SAFE_NO_PAD.encode(&payload)
+}
+
+pub fn verify(tok: &str) -> Result<String, String> {
+    let buf = URL_SAFE_NO_PAD.decode(tok)
+        .map_err(|_| "bad base64".to_string())?;
+
+    if buf.len() < 50 { return Err("token too short".to_string()); }
+
+    let secret = std::env::var("TOKEN_KEY")
+        .map_err(|_| "missing TOKEN_KEY".to_string())?;
+
+    let (payload, received_sig) = buf.split_at(buf.len() - 32);
+    let expected_sig = HMAC::mac(payload, secret.as_bytes());
+
+    if expected_sig.as_slice() != received_sig {
+        return Err("signature mismatch".to_string());
+    }
+
+    let path_len = u16::from_be_bytes(payload[16..18].try_into().unwrap()) as usize;
+    let filepath = std::str::from_utf8(&payload[18..18 + path_len])
+        .map_err(|_| "invalid UTF-8".to_string())?;
+
+    Ok(filepath.to_string())
+}
+
+/// Retrieve downloadable books for a given order.
+/// Queries order_items directly to get all editions purchased, then builds
+/// the downloadable metadata with minted tokens for each file.
+pub async fn get_downloadable_books_for_order(db: &SqlitePool, order_id: i64) -> AnyhowResult<Vec<Book>> {
+    // Query all editions for this order with book and author info
     let edition_rows = sqlx::query!(
         "SELECT
             e.id as \"id!: i64\",
@@ -214,13 +103,15 @@ pub async fn get_downloadable_book(db: &SqlitePool, book_slug: &str, order_id: i
             CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author_name!: String\",
             e.cover as \"cover!: String\",
             f.name as \"format!: String\",
-            e.language as \"language: Option<String>\"
-         FROM editions e
+            e.language as \"language: Option<String>\",
+            b.slug as \"slug!: String\"
+         FROM order_items oi
+         INNER JOIN editions e ON oi.edition_id = e.id
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN authors a ON b.author_id = a.id
          INNER JOIN formats f ON e.format_id = f.id
-         WHERE b.slug = ?",
-        book_slug
+         WHERE oi.order_id = ?",
+        order_id
     )
     .fetch_all(db)
     .await?;
@@ -232,9 +123,9 @@ pub async fn get_downloadable_book(db: &SqlitePool, book_slug: &str, order_id: i
     let mut books: Vec<Book> = Vec::with_capacity(edition_rows.len());
 
     for er in edition_rows {
-        // Fetch files for this edition, include file id so we can look up the order-specific token
+        // Fetch files for this edition
         let file_rows = sqlx::query!(
-            "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\", files.id as \"file_id!: i64\"
+            "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
              FROM files
              INNER JOIN file_formats ff ON files.file_format_id = ff.id
              WHERE files.edition_id = ?",
@@ -256,23 +147,10 @@ pub async fn get_downloadable_book(db: &SqlitePool, book_slug: &str, order_id: i
                 }
             };
 
-            // Look up the download token for this order and file
-            let token_row = sqlx::query!(
-                "SELECT token FROM download_tokens WHERE order_id = ? AND file_id = ?",
-                order_id,
-                fr.file_id
-            )
-            .fetch_optional(db)
-            .await?;
-
-            if let Some(tr) = token_row {
-                let url = format!("/api/download/{}", tr.token);
-                files.push(File { format: fmt, path: url });
-            } else {
-                // If no token exists for this order & file, skip it (shouldn't happen since tokens are created earlier)
-                eprintln!("no download token for order {} file {}", order_id, fr.file_id);
-                continue;
-            }
+            // Mint a download token on-demand for this filepath
+            let token = mint(&fr.file_path);
+            let url = format!("/api/download/{}", token);
+            files.push(File { format: fmt, path: url });
         }
 
         // Build a minimal Edition
@@ -295,12 +173,12 @@ pub async fn get_downloadable_book(db: &SqlitePool, book_slug: &str, order_id: i
             files: Some(files),
         };
 
-        // Build a Book containing this edition (caller groups by slug)
+        // Build a Book containing this edition
         let book = Book {
             id: er.id,
             title: edition.title.clone(),
             author: edition.author_name.clone(),
-            book_slug: book_slug.to_string(),
+            book_slug: er.slug,
             editions: vec![edition],
         };
 
@@ -312,7 +190,7 @@ pub async fn get_downloadable_book(db: &SqlitePool, book_slug: &str, order_id: i
 
 #[derive(Serialize)]
 pub struct SuccessReturn {
-	pub email: String,
-	pub order_reference: String,
-	pub books: Vec<Book>,
+    pub email: String,
+    pub order_reference: String,
+    pub books: Vec<Book>,
 }

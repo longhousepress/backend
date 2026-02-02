@@ -89,12 +89,12 @@ CREATE TABLE IF NOT EXISTS book_categories (
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,
     stripe_session_id TEXT UNIQUE,
+    email TEXT,
     paid INTEGER CHECK (paid IN (0,1) OR paid IS NULL),
     paid_at TEXT,
     total_amount INTEGER,
     currency TEXT,
-    created_at TEXT NOT NULL
-        DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_orders_stripe_session
@@ -113,22 +113,3 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id
     ON order_items (order_id);
-
--- Download tokens: time-limited access to a specific file
-CREATE TABLE IF NOT EXISTS download_tokens (
-    id INTEGER PRIMARY KEY,
-    order_id INTEGER NOT NULL,
-    file_id INTEGER NOT NULL,
-    token TEXT NOT NULL UNIQUE,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL
-        DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE RESTRICT
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_download_tokens_token
-    ON download_tokens (token);
-
-CREATE INDEX IF NOT EXISTS idx_download_tokens_order
-    ON download_tokens (order_id);
