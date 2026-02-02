@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS formats (
 ) STRICT;
 
 -- Seed the formats
-INSERT OR IGNORE INTO formats (name) VALUES 
+INSERT OR IGNORE INTO formats (name) VALUES
     ('Paperback'),
     ('Hardcover'),
     ('eBook');
@@ -65,7 +65,6 @@ CREATE TABLE IF NOT EXISTS book_categories (
 -- paid is nullable: NULL = pending, 1 = paid, 0 = failed
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,                          -- internal order id
-    client_reference TEXT UNIQUE,                    -- optional: value you set in Stripe metadata / client_reference_id
     stripe_session_id TEXT UNIQUE,                   -- the Stripe Checkout session id (session_...)
     paid INTEGER CHECK (paid IN (0,1) OR paid IS NULL), -- NULL = pending, 1 = paid, 0 = failed
     paid_at TEXT,                                    -- RFC3339/ISO8601 timestamp when marked paid (nullable)

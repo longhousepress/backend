@@ -1,14 +1,18 @@
 mod db;
 mod models;
 mod stripe;
+
 use rocket::fs::NamedFile;
 use rocket::{serde::json::Json, State, http::Status};
 use sqlx::SqlitePool;
 use serde_json::json;
 
 use crate::db::load_db;
-use crate::models::{Book, BookDetail, CheckoutRequest, CheckoutSession};
+use crate::stripe::checkout::{CheckoutRequest, CheckoutSession};
+use crate::models::{Book, BookDetail};
 use rocket_cors::{AllowedOrigins, CorsOptions};
+
+const REQUIRED_VARS: [&str; 3] = ["TOKEN_KEY", "STRIPE_API_KEY", "STRIPE_WEBHOOK_SECRET"];
 
 #[macro_use] extern crate rocket;
 
@@ -18,12 +22,15 @@ struct LangQuery {
 }
 
 #[post("/api/checkout", data = "<request>")]
-async fn create_checkout_session(db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
+async fn checkout(db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
     // take ownership of the parsed request body
     let req = request.into_inner();
-    match stripe::create_checkout_session(&db, &req).await {
+    match stripe::checkout::create_checkout_session(&db, &req).await {
         Ok(s) => Ok(Json(s)),
-        Err(_) => Err(Status::InternalServerError)
+        Err(e) => {
+        	eprintln!("Error when creating a checkout session: {}", e);
+        	Err(Status::InternalServerError)
+        }
     }
 }
 
@@ -48,7 +55,7 @@ async fn books(db: &State<SqlitePool>, query: LangQuery) -> Result<Json<Vec<Book
 #[get("/api/download/<tok>")]
 async fn download(db: &State<SqlitePool>, tok: &str) -> Result<NamedFile, Status> {
     // Treat `tok` as a download token: verify signature and serve the underlying file.
-    crate::stripe::verify(tok).map_err(|_| Status::Gone)?;
+    crate::stripe::download::verify(tok).map_err(|_| Status::Gone)?;
 
     // Resolve the token -> edition -> file_path, ensuring token is not expired (if expiry present)
     let file_row = sqlx::query!(
@@ -118,18 +125,28 @@ async fn downloads_for_order(db: &State<SqlitePool>, order_id: i64) -> Result<Js
 
 #[launch]
 async fn rocket() -> _ {
-	let cors = CorsOptions {
-        allowed_origins: AllowedOrigins::all(), // dev only; restrict in prod
-        ..Default::default()
-    }
-    .to_cors()
-    .expect("CORS setup");
+	// Load .env and crash immediately if it's not there
+	dotenvy::dotenv().expect("Failed to load .env");
 
-    // Load the database once at startup
+	// Crash if any of the expected env vars are missing
+	if let Some(missing) = REQUIRED_VARS.iter().find(|v| std::env::var(v).is_err()) {
+    	panic!("Missing required environment variable: {}", missing);
+	}
+
+    // Load db and crash immediately if we can't
     let db = load_db().await.expect("Failed to load database");
 
+    // Set CORS
+	let cors = CorsOptions {
+           allowed_origins: AllowedOrigins::all(), // dev only; restrict in prod
+           ..Default::default()
+       }
+       .to_cors()
+       .expect("CORS setup");
+
+	// And launch
     rocket::build()
         .manage(db)
         .attach(cors)  // Register the pool as managed state
-        .mount("/", routes![create_checkout_session, book_detail, books, download, downloads_for_order, stripe::verify_order_endpoint, stripe::stripe_webhook])
+        .mount("/", routes![stripe::download::verify_order_endpoint, checkout, book_detail, books, download, downloads_for_order, stripe::webhook::stripe_webhook])
 }

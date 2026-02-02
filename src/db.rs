@@ -40,15 +40,15 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
          WHERE e.id IN (
              SELECT COALESCE(
                  -- First try: requested language
-                 (SELECT e1.id FROM editions e1 
+                 (SELECT e1.id FROM editions e1
                   WHERE e1.book_id = b.id AND e1.language = ?
                   LIMIT 1),
                  -- Second try: English
-                 (SELECT e2.id FROM editions e2 
+                 (SELECT e2.id FROM editions e2
                   WHERE e2.book_id = b.id AND e2.language = 'eng'
                   LIMIT 1),
                  -- Last resort: first edition found
-                 (SELECT e3.id FROM editions e3 
+                 (SELECT e3.id FROM editions e3
                   WHERE e3.book_id = b.id
                   LIMIT 1)
              )
@@ -66,7 +66,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
 pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<BookDetail>> {
     // First, get the book info
     let book_row = sqlx::query(
-        "SELECT 
+        "SELECT
             b.slug as book_slug,
             b.year_published,
             a.name as author,
@@ -97,7 +97,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     // Get all editions for this book
     let editions = sqlx::query_as!(
         Edition,
-        "SELECT 
+        "SELECT
             e.id as \"id!\",
             e.title as \"title!\",
             CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author_name!: String\",
@@ -143,4 +143,40 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
         categories,
         editions,
     }))
+}
+
+// Useful things when creating a Stripe session
+pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
+    // Look up the edition title by numeric id.
+    let title_opt = sqlx::query_scalar::<_, String>("SELECT title FROM editions WHERE id = ?")
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
+    match title_opt {
+        Some(title) => Ok(title),
+        None => Err(anyhow::anyhow!("edition id {} not found", id)),
+    }
+}
+
+pub async fn get_edition_price(id: i64, db: &SqlitePool) -> Result<u32> {
+    // Look up the edition price by numeric id.
+    let price_opt = sqlx::query_scalar::<_, i64>("SELECT price FROM editions WHERE id = ?")
+        .bind(id)
+        .fetch_optional(db)
+        .await?;
+    match price_opt {
+        Some(price) => Ok(price as u32),
+        None => Err(anyhow::anyhow!("edition id {} not found", id)),
+    }
+}
+
+pub async fn mark_order_paid(pool: &SqlitePool, order_id: i64) -> Result<()> {
+    sqlx::query!(
+        "UPDATE orders SET paid = 1, paid_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now')) WHERE id = ?",
+        order_id
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
