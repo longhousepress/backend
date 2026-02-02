@@ -1,10 +1,24 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use rocket::State;
 use sqlx::sqlite::SqlitePool;
 use sqlx::FromRow;
+use rocket::{serde::json::Json, State, http::Status};
 
 use crate::db::{get_edition_name, get_edition_price};
+
+
+#[post("/api/checkout", data = "<request>")]
+pub async fn checkout(db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
+    // take ownership of the parsed request body
+    let req = request.into_inner();
+    match create_checkout_session(&db, &req).await {
+        Ok(s) => Ok(Json(s)),
+        Err(e) => {
+        	eprintln!("Error when creating a checkout session: {}", e);
+        	Err(Status::InternalServerError)
+        }
+    }
+}
 
 pub async fn create_checkout_session(db: &State<SqlitePool>, req: &CheckoutRequest) -> Result<CheckoutSession> {
     // Persist a pending order in the DB and get its number

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT f.file_path FROM download_tokens dt INNER JOIN files f ON dt.file_id = f.id WHERE dt.token = ? LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "file_path",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "593ea953b9a61fd3a86222ae13d1037a72aa52624868652ca410b02d5d1847b9"
+}

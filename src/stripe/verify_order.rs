@@ -46,51 +46,6 @@ pub async fn verify_order_endpoint(db: &State<SqlitePool>, session_id: String) -
     Ok(Json(out))
 }
 
-// Mint a unique download token
-pub fn mint(filepath: &str) -> String {
-    let mut payload = Vec::new();
-
-    // 1) random nonce (16 bytes) - just for uniqueness
-    let mut nonce = [0u8; 16];
-    rng().fill_bytes(&mut nonce);
-    payload.extend_from_slice(&nonce);
-
-    // 2) filepath length (2 bytes) + filepath
-    let path_bytes = filepath.as_bytes();
-    payload.extend_from_slice(&(path_bytes.len() as u16).to_be_bytes());
-    payload.extend_from_slice(path_bytes);
-
-    // 3) sign
-    let secret = std::env::var("TOKEN_KEY").expect("TOKEN_KEY not set");
-    let sig = HMAC::mac(&payload, secret.as_bytes());
-    payload.extend_from_slice(&sig);
-
-    URL_SAFE_NO_PAD.encode(&payload)
-}
-
-pub fn verify(tok: &str) -> Result<String, String> {
-    let buf = URL_SAFE_NO_PAD.decode(tok)
-        .map_err(|_| "bad base64".to_string())?;
-
-    if buf.len() < 50 { return Err("token too short".to_string()); }
-
-    let secret = std::env::var("TOKEN_KEY")
-        .map_err(|_| "missing TOKEN_KEY".to_string())?;
-
-    let (payload, received_sig) = buf.split_at(buf.len() - 32);
-    let expected_sig = HMAC::mac(payload, secret.as_bytes());
-
-    if expected_sig.as_slice() != received_sig {
-        return Err("signature mismatch".to_string());
-    }
-
-    let path_len = u16::from_be_bytes(payload[16..18].try_into().unwrap()) as usize;
-    let filepath = std::str::from_utf8(&payload[18..18 + path_len])
-        .map_err(|_| "invalid UTF-8".to_string())?;
-
-    Ok(filepath.to_string())
-}
-
 /// Retrieve downloadable books for a given order.
 /// Queries order_items directly to get all editions purchased, then builds
 /// the downloadable metadata with minted tokens for each file.
@@ -186,6 +141,28 @@ pub async fn get_downloadable_books_for_order(db: &SqlitePool, order_id: i64) ->
     }
 
     Ok(books)
+}
+
+// Mint a unique download token
+pub fn mint(filepath: &str) -> String {
+    let mut payload = Vec::new();
+
+    // 1) random nonce (16 bytes) - just for uniqueness
+    let mut nonce = [0u8; 16];
+    rng().fill_bytes(&mut nonce);
+    payload.extend_from_slice(&nonce);
+
+    // 2) filepath length (2 bytes) + filepath
+    let path_bytes = filepath.as_bytes();
+    payload.extend_from_slice(&(path_bytes.len() as u16).to_be_bytes());
+    payload.extend_from_slice(path_bytes);
+
+    // 3) sign
+    let secret = std::env::var("TOKEN_KEY").expect("TOKEN_KEY not set");
+    let sig = HMAC::mac(&payload, secret.as_bytes());
+    payload.extend_from_slice(&sig);
+
+    URL_SAFE_NO_PAD.encode(&payload)
 }
 
 #[derive(Serialize)]

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT edition_id FROM order_items WHERE order_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "edition_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "76457f4afb2b62876d49ea24d50537d59fc7f1227499f62b9d02c228b2aa2b8e"
+}

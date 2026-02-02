@@ -1,3 +1,3 @@
 pub mod webhook;
 pub mod checkout;
-pub mod download;
+pub mod verify_order;

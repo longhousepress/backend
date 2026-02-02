@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT dt.token, dt.expires_at, e.title FROM download_tokens dt INNER JOIN files f ON dt.file_id = f.id INNER JOIN editions e ON f.edition_id = e.id WHERE dt.order_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "token",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "expires_at",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7004e47c40114c28a1d2575fd910e08c4932490aa123099e8df2d3aff6639bf6"
+}

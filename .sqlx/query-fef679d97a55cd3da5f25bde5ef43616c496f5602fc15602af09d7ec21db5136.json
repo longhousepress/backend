@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE orders SET paid = 1, paid_at = ?, email = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "fef679d97a55cd3da5f25bde5ef43616c496f5602fc15602af09d7ec21db5136"
+}
