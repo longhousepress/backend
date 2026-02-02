@@ -40,14 +40,17 @@ async fn rocket() -> _ {
     let db = load_db().await.expect("Failed to load database");
     info!("Database loaded successfully");
 
-    // Set CORS
+    // Set CORS from config
+	let allowed_origins = AllowedOrigins::some_exact(&config.allowed_origins);
 	let cors = CorsOptions {
-           allowed_origins: AllowedOrigins::all(), // dev only; restrict in prod
+           allowed_origins,
            expose_headers: vec!["X-Order-Id".into()].into_iter().collect::<HashSet<String>>(),
            ..Default::default()
        }
        .to_cors()
        .expect("CORS setup");
+	
+	info!("CORS configured for origins: {:?}", config.allowed_origins);
 
 	// And launch
     rocket::build()

@@ -26,8 +26,8 @@ pub async fn create_checkout_session(config: &State<Config>, db: &State<SqlitePo
     // Persist a pending order in the DB and get its number
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
-        success_url: format!("http://localhost:4321/success?session_id={{CHECKOUT_SESSION_ID}}"),
-        cancel_url: "http://localhost:4321/failure".into(),
+        success_url: config.stripe_success_url.clone(),
+        cancel_url: config.stripe_cancel_url.clone(),
         line_items: create_checkout_body(db.inner(), req).await?,
         client_reference_id: None,
         payment_intent_data: None,
@@ -127,7 +127,7 @@ struct StripeCheckout {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StripeLineItem {
     pub price_data: StripePriceData,
-    pub quantity: u32,
+    pub quantity: u8,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -175,7 +175,7 @@ pub struct CheckoutSession {
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct CheckoutItem {
     pub edition_id: i64,
-    pub quantity: u32,
+    pub quantity: u8,
 }
 
 #[allow(dead_code)]
