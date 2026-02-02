@@ -7,6 +7,7 @@ mod book_detail;
 
 use rocket::State;
 use rocket_cors::{AllowedOrigins, CorsOptions};
+use std::collections::HashSet;
 
 use crate::db::load_db;
 
@@ -29,6 +30,7 @@ async fn rocket() -> _ {
     // Set CORS
 	let cors = CorsOptions {
            allowed_origins: AllowedOrigins::all(), // dev only; restrict in prod
+           expose_headers: vec!["X-Order-Id".into()].into_iter().collect::<HashSet<String>>(),
            ..Default::default()
        }
        .to_cors()
