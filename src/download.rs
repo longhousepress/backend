@@ -5,6 +5,7 @@ use rocket::fs::NamedFile;
 use rocket::response::{Responder, Result as RespResult};
 use rocket::{Request, State};
 use std::path::Path;
+use tracing::{error, warn};
 use crate::config::Config;
 
 #[get("/api/download/<tok>")]
@@ -12,11 +13,14 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
     // Verify the token and extract the filepath from its payload
     let file_path = match verify(tok, &config.token_key) {
         Ok(p) => p,
-        Err(_) => return Err(Status::Gone),
+        Err(e) => {
+            warn!("Invalid download token: {}", e);
+            return Err(Status::Gone);
+        }
     };
 
     let named_file = NamedFile::open(&file_path).await.map_err(|e| {
-        eprintln!("file open error: {:?}", e);
+        error!("Failed to open file for download: {:?}", e);
         Status::InternalServerError
     })?;
 

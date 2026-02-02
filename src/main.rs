@@ -8,6 +8,9 @@ mod book_detail;
 
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing::info;
 
 use crate::config::Config;
 use crate::db::load_db;
@@ -21,8 +24,21 @@ async fn rocket() -> _ {
 	// Load config and crash immediately if any required env vars are missing
 	let config = Config::from_env();
 
+	// Initialize logging to file
+	let file_appender = RollingFileAppender::new(Rotation::DAILY, &config.log_path, "dragon.log");
+	let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+	
+	tracing_subscriber::registry()
+		.with(fmt::layer().with_writer(non_blocking).with_ansi(false))
+		.with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+		.init();
+
+	info!("Dragon backend starting up");
+	info!("Logging initialized to: {}", config.log_path);
+
     // Load db and crash immediately if we can't
     let db = load_db().await.expect("Failed to load database");
+    info!("Database loaded successfully");
 
     // Set CORS
 	let cors = CorsOptions {

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use sqlx::FromRow;
 use rocket::{serde::json::Json, State, http::Status};
+use tracing::{error, warn};
 
 use crate::config::Config;
 use crate::db::{get_edition_name, get_edition_price};
@@ -15,7 +16,7 @@ pub async fn checkout(config: &State<Config>, db: &State<SqlitePool>, request: J
     match create_checkout_session(config, &db, &req).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
-        	eprintln!("Error when creating a checkout session: {}", e);
+        	error!("Error creating checkout session: {}", e);
         	Err(Status::InternalServerError)
         }
     }
@@ -66,7 +67,10 @@ pub async fn create_checkout_session(config: &State<Config>, db: &State<SqlitePo
     	Ok(_) => Ok(CheckoutSession { url }),
      	// If the DB insert fails, we need to clean up the dangling session
     	Err(e) => {
-     		let _ = expire_stripe_session(config, &stripe_session_id).await;
+     		error!("Failed to persist order for Stripe session {}: {}", stripe_session_id, e);
+     		if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id).await {
+     			warn!("Failed to expire dangling Stripe session {}: {}", stripe_session_id, expire_err);
+     		}
        		Err(e)
      	}
     }

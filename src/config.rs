@@ -7,6 +7,7 @@ pub struct Config {
     pub token_key: String,
     pub stripe_api_key: String,
     pub stripe_webhook_secret: String,
+    pub log_path: String,
 }
 
 impl Config {
@@ -17,6 +18,7 @@ impl Config {
             token_key: Self::get_required("TOKEN_KEY"),
             stripe_api_key: Self::get_required("STRIPE_API_KEY"),
             stripe_webhook_secret: Self::get_required("STRIPE_WEBHOOK_SECRET"),
+            log_path: Self::get_required("LOG_PATH"),
         }
     }
 

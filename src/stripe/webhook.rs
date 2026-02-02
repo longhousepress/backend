@@ -5,6 +5,7 @@ use rocket::State;
 use sqlx::SqlitePool;
 
 use rocket::request::{self, FromRequest, Request};
+use tracing::{error, warn};
 
 use crate::config::Config;
 use crate::db::mark_order_paid;
@@ -19,14 +20,14 @@ pub async fn stripe_webhook(
 ) -> Result<rocket::http::Status, rocket::http::Status> {
     verify_stripe_signature(payload.as_bytes(), &signature.0, &config.stripe_webhook_secret)
         .map_err(|e| {
-            eprintln!("Webhook signature verification failed: {:?}", e);
+            error!("Webhook signature verification failed: {:?}", e);
             rocket::http::Status::Unauthorized
         })?;
 
     // Parse the event
     let json: serde_json::Value = serde_json::from_str(&payload)
         .map_err(|e| {
-            eprintln!("Failed to parse webhook JSON: {:?}", e);
+            error!("Failed to parse webhook JSON: {:?}", e);
             rocket::http::Status::BadRequest
         })?;
 
@@ -35,7 +36,7 @@ pub async fn stripe_webhook(
     if event_type == "checkout.session.completed" {
         let deserialized_response: CheckoutSessionCompleted = serde_json::from_value(json)
             .map_err(|e| {
-                eprintln!("Could not deserialize checkout.session.completed webhook event: {e}");
+                error!("Could not deserialize checkout.session.completed webhook event: {e}");
                 rocket::http::Status::InternalServerError
             })?;
 
@@ -49,18 +50,18 @@ pub async fn stripe_webhook(
             .fetch_optional(db.inner())
             .await
             .map_err(|e| {
-                eprintln!("DB error looking up order for session {}: {:?}", session_id, e);
+                error!("Database error looking up order for session {}: {:?}", session_id, e);
                 rocket::http::Status::InternalServerError
             })?
             .ok_or_else(|| {
-                eprintln!("Webhook: no matching order for session {}", session_id);
+                warn!("Webhook received for unknown session {}", session_id);
                 rocket::http::Status::Ok
             })?;
 
         if payment_status == "paid" {
             mark_order_paid(db.inner(), order_id, &customer_email).await
                 .map_err(|e| {
-                    eprintln!("Error marking order {} paid: {:?}", order_id, e);
+                    error!("Error marking order {} paid: {:?}", order_id, e);
                     rocket::http::Status::InternalServerError
                 })?;
         }

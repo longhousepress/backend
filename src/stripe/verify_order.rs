@@ -11,6 +11,7 @@ use serde::Serialize;
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
 use rocket::Request;
+use tracing::{error, warn};
 
 /// Small responder type to send an HTTP status and optionally include the order id
 /// in a custom header (used when returning 410 Gone).
@@ -47,7 +48,7 @@ pub async fn verify_order_endpoint(
         .fetch_one(db.inner())
         .await
         .map_err(|e| {
-            eprintln!("db error: {:?}", e);
+            error!("Database error looking up order by session {}: {:?}", session_id, e);
             ErrorResponse::Status(Status::InternalServerError)
         })?;
 
@@ -66,7 +67,7 @@ pub async fn verify_order_endpoint(
     if let Some(paid_at_str) = row.paid_at {
         let paid_at = paid_at_str.parse::<chrono::DateTime<chrono::Utc>>()
             .map_err(|e| {
-                eprintln!("failed to parse paid_at: {:?}", e);
+                error!("Failed to parse paid_at timestamp for order {}: {:?}", order_id, e);
                 ErrorResponse::Status(Status::InternalServerError)
             })?;
 
@@ -83,7 +84,7 @@ pub async fn verify_order_endpoint(
     let books = match get_downloadable_books_for_order(config, db.inner(), order_id).await {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("error building downloadable metadata for order {}: {}", order_id, e);
+            error!("Error building downloadable metadata for order {}: {}", order_id, e);
             return Err(ErrorResponse::Status(Status::InternalServerError));
         }
     };
@@ -148,7 +149,7 @@ pub async fn get_downloadable_books_for_order(config: &Config, db: &SqlitePool, 
                 "azw3" => FileFormat::Azw3,
                 "pdf" => FileFormat::Pdf,
                 other => {
-                    eprintln!("unknown file format '{}' for edition {}", other, er.id);
+                    warn!("Unknown file format '{}' for edition {}, skipping", other, er.id);
                     continue; // skip unknown formats
                 }
             };
