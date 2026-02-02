@@ -4,8 +4,12 @@ mod stripe;
 
 use rocket::fs::NamedFile;
 use rocket::{serde::json::Json, State, http::Status};
+use rocket::response::{Responder, Result as RespResult};
+use rocket::Request;
 use sqlx::SqlitePool;
 use serde_json::json;
+use std::path::Path;
+
 
 use crate::db::load_db;
 use crate::stripe::checkout::{CheckoutRequest, CheckoutSession};
@@ -52,8 +56,23 @@ async fn books(db: &State<SqlitePool>, query: LangQuery) -> Result<Json<Vec<Book
     }
 }
 
+
+#[derive(Debug)]
+struct DownloadResponder {
+    file: NamedFile,
+    filename: String,
+}
+
+impl<'r> Responder<'r, 'static> for DownloadResponder {
+    fn respond_to(self, req: &'r Request<'_>) -> RespResult<'static> {
+        let mut response = self.file.respond_to(req)?;
+        response.set_raw_header("Content-Disposition", format!("attachment; filename=\"{}\"", self.filename));
+        Ok(response)
+    }
+}
+
 #[get("/api/download/<tok>")]
-async fn download(db: &State<SqlitePool>, tok: &str) -> Result<NamedFile, Status> {
+async fn download(db: &State<SqlitePool>, tok: &str) -> Result<DownloadResponder, Status> {
     // Treat `tok` as a download token: verify signature and serve the underlying file.
     crate::stripe::download::verify(tok).map_err(|_| Status::Gone)?;
 
@@ -73,10 +92,19 @@ async fn download(db: &State<SqlitePool>, tok: &str) -> Result<NamedFile, Status
         None => return Err(Status::NotFound),
     };
 
-    NamedFile::open(file_path).await.map_err(|e| {
+    let named_file = NamedFile::open(&file_path).await.map_err(|e| {
         eprintln!("file open error: {:?}", e);
         Status::InternalServerError
-    })
+    })?;
+
+    // Extract filename from path
+    let filename = Path::new(&file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("download")
+        .to_string();
+
+    Ok(DownloadResponder { file: named_file, filename })
 }
 
 #[get("/api/downloads/order/<order_id>")]
