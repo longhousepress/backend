@@ -35,6 +35,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
             e.price as price,
             e.cover as cover,
             b.slug as book_slug,
+            b.id as book_id,
             f.name as format,
             e.language as language
          FROM editions e
@@ -64,38 +65,50 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
     .fetch_all(db)
     .await?;
 
-    let books: Vec<Book> = rows
-        .into_iter()
-        .map(|r| {
-            // Build a minimal Edition from the selected columns to include in Book.editions
-            let edition = Edition {
-                id: r.id,
-                title: r.title,
-                author_name: r.author,
-                author_bio: None,
-                price: r.price,
-                cover: r.cover,
-                description: None,
-                categories: Vec::new(),
-                format: r.format,
-                language: r.language,
-                page_count: None,
-                translator: None,
-                publication_date: None,
-                isbn: None,
-                edition_name: None,
-                files: None,
-            };
+    let mut books: Vec<Book> = Vec::new();
 
-            Book {
-                id: r.id,
-                title: edition.title.clone(),
-                author: edition.author_name.clone(),
-                book_slug: r.book_slug,
-                editions: vec![edition],
-            }
-        })
-        .collect();
+    for r in rows {
+        // Fetch categories for this book
+        let cat_rows = sqlx::query!(
+            "SELECT c.name
+             FROM categories c
+             INNER JOIN book_categories bc ON c.id = bc.category_id
+             WHERE bc.book_id = ?",
+            r.book_id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let categories: Vec<String> = cat_rows.into_iter().map(|c| c.name).collect();
+
+        // Build a minimal Edition from the selected columns to include in Book.editions
+        let edition = Edition {
+            id: r.id,
+            title: r.title,
+            author_name: r.author.clone(),
+            author_bio: None,
+            price: r.price,
+            cover: r.cover,
+            description: None,
+            categories,
+            format: r.format,
+            language: r.language,
+            page_count: None,
+            translator: None,
+            publication_date: None,
+            isbn: None,
+            edition_name: None,
+            files: None,
+        };
+
+        books.push(Book {
+            id: r.id,
+            title: edition.title.clone(),
+            author: edition.author_name.clone(),
+            book_slug: r.book_slug,
+            editions: vec![edition],
+        });
+    }
 
     Ok(books)
 }
