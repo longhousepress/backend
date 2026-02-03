@@ -1,18 +1,17 @@
-use rand::{rng, RngCore};
-use anyhow::Result as AnyhowResult;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use sqlx::SqlitePool;
-use rocket::State;
 use crate::config::Config;
 use crate::models::{Book, Edition, File, FileFormat};
-use rocket::serde::json::Json;
-use serde::Serialize;
+use anyhow::Result as AnyhowResult;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use hmac::{Hmac, Mac};
+use rand::{RngCore, rng};
+use rocket::Request;
+use rocket::State;
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
-use rocket::Request;
-use tracing::{error, warn};
+use rocket::serde::json::Json;
+use serde::Serialize;
+use sha2::Sha256;
+use sqlx::SqlitePool;
 
 /// Small responder type to send an HTTP status and optionally include the order id
 /// in a custom header (used when returning 410 Gone).
@@ -45,13 +44,19 @@ pub async fn verify_order_endpoint(
     session_id: String,
 ) -> std::result::Result<Json<SuccessReturn>, ErrorResponse> {
     // Look up the order by Stripe session id
-    let row = sqlx::query!("SELECT id, paid, paid_at, email FROM orders WHERE stripe_session_id = ?", session_id)
-        .fetch_one(db.inner())
-        .await
-        .map_err(|e| {
-            error!("Database error looking up order by session {}: {:?}", session_id, e);
-            ErrorResponse::Status(Status::InternalServerError)
-        })?;
+    let row = sqlx::query!(
+        "SELECT id, paid, paid_at, email FROM orders WHERE stripe_session_id = ?",
+        session_id
+    )
+    .fetch_one(db.inner())
+    .await
+    .map_err(|e| {
+        error!(
+            "Database error looking up order by session {}: {:?}",
+            session_id, e
+        );
+        ErrorResponse::Status(Status::InternalServerError)
+    })?;
 
     // Extract order id early so we can include it in the Gone response header if needed
     let order_id = match row.id {
@@ -66,9 +71,13 @@ pub async fn verify_order_endpoint(
 
     // Check if the order was paid more than 15 minutes ago
     if let Some(paid_at_str) = row.paid_at {
-        let paid_at = paid_at_str.parse::<chrono::DateTime<chrono::Utc>>()
+        let paid_at = paid_at_str
+            .parse::<chrono::DateTime<chrono::Utc>>()
             .map_err(|e| {
-                error!("Failed to parse paid_at timestamp for order {}: {:?}", order_id, e);
+                error!(
+                    "Failed to parse paid_at timestamp for order {}: {:?}",
+                    order_id, e
+                );
                 ErrorResponse::Status(Status::InternalServerError)
             })?;
 
@@ -77,7 +86,10 @@ pub async fn verify_order_endpoint(
 
         if elapsed > chrono::Duration::minutes(15) {
             // Return 410 Gone with X-Order-Id header
-            return Err(ErrorResponse::WithOrder { status: Status::Gone, order_id });
+            return Err(ErrorResponse::WithOrder {
+                status: Status::Gone,
+                order_id,
+            });
         }
     }
 
@@ -85,7 +97,10 @@ pub async fn verify_order_endpoint(
     let books = match get_downloadable_books_for_order(config, db.inner(), order_id).await {
         Ok(b) => b,
         Err(e) => {
-            error!("Error building downloadable metadata for order {}: {}", order_id, e);
+            error!(
+                "Error building downloadable metadata for order {}: {}",
+                order_id, e
+            );
             return Err(ErrorResponse::Status(Status::InternalServerError));
         }
     };
@@ -102,7 +117,11 @@ pub async fn verify_order_endpoint(
 /// Retrieve downloadable books for a given order.
 /// Queries order_items directly to get all editions purchased, then builds
 /// the downloadable metadata with minted tokens for each file.
-pub async fn get_downloadable_books_for_order(config: &Config, db: &SqlitePool, order_id: i64) -> AnyhowResult<Vec<Book>> {
+pub async fn get_downloadable_books_for_order(
+    config: &Config,
+    db: &SqlitePool,
+    order_id: i64,
+) -> AnyhowResult<Vec<Book>> {
     // Query all editions for this order with book and author info
     let edition_rows = sqlx::query!(
         "SELECT
@@ -150,7 +169,10 @@ pub async fn get_downloadable_books_for_order(config: &Config, db: &SqlitePool, 
                 "azw3" => FileFormat::Azw3,
                 "pdf" => FileFormat::Pdf,
                 other => {
-                    warn!("Unknown file format '{}' for edition {}, skipping", other, er.id);
+                    warn!(
+                        "Unknown file format '{}' for edition {}, skipping",
+                        other, er.id
+                    );
                     continue; // skip unknown formats
                 }
             };
@@ -158,7 +180,10 @@ pub async fn get_downloadable_books_for_order(config: &Config, db: &SqlitePool, 
             // Mint a download token on-demand for this filepath
             let token = mint(&fr.file_path, &config.token_key);
             let url = format!("/api/download/{}", token);
-            files.push(File { format: fmt, path: url });
+            files.push(File {
+                format: fmt,
+                path: url,
+            });
         }
 
         // Build a minimal Edition

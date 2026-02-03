@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 // For catalog listing - all editions with filter-relevant fields
@@ -28,19 +28,19 @@ pub struct Edition {
     pub publication_date: Option<String>,
     pub isbn: Option<String>,
     pub edition_name: Option<String>,
-    pub files: Option<Vec<File>>
+    pub files: Option<Vec<File>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct File {
-	pub format: FileFormat,
-	pub path: String,
+    pub format: FileFormat,
+    pub path: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum FileFormat {
-	Epub,
-	Kepub,
-	Azw3,
-	Pdf,
+    Epub,
+    Kepub,
+    Azw3,
+    Pdf,
 }

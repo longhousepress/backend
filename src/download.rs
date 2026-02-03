@@ -1,14 +1,14 @@
+use crate::config::Config;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use subtle::ConstantTimeEq;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rocket::http::Status;
 use rocket::fs::NamedFile;
+use rocket::http::Status;
 use rocket::response::{Responder, Result as RespResult};
 use rocket::{Request, State};
+use sha2::Sha256;
 use std::path::Path;
+use subtle::ConstantTimeEq;
 use tracing::{error, warn};
-use crate::config::Config;
 
 // HMAC-SHA256 produces 32-byte (256-bit) signatures
 const HMAC_SHA256_OUTPUT_SIZE: usize = 32;
@@ -36,12 +36,16 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
         .unwrap_or("download")
         .to_string();
 
-    Ok(DownloadResponder { file: named_file, filename })
+    Ok(DownloadResponder {
+        file: named_file,
+        filename,
+    })
 }
 
 pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
     // Decode base64 token
-    let buf = URL_SAFE_NO_PAD.decode(tok)
+    let buf = URL_SAFE_NO_PAD
+        .decode(tok)
         .map_err(|_| "bad base64".to_string())?;
 
     // Expect at minimum: header (18 bytes) + signature (HMAC-SHA256)
@@ -124,7 +128,10 @@ pub struct DownloadResponder {
 impl<'r> Responder<'r, 'static> for DownloadResponder {
     fn respond_to(self, req: &'r Request<'_>) -> RespResult<'static> {
         let mut response = self.file.respond_to(req)?;
-        response.set_raw_header("Content-Disposition", format!("attachment; filename=\"{}\"", self.filename));
+        response.set_raw_header(
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", self.filename),
+        );
         Ok(response)
     }
 }

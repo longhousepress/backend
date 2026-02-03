@@ -1,4 +1,4 @@
-use rocket::{serde::json::Json, State, http::Status};
+use rocket::{State, http::Status, serde::json::Json};
 use sqlx::SqlitePool;
 use tracing::error;
 

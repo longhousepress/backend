@@ -32,7 +32,8 @@ impl Config {
             .collect();
 
         let smtp_port_str = Self::get_required("SMTP_PORT");
-        let smtp_port = smtp_port_str.parse::<u16>()
+        let smtp_port = smtp_port_str
+            .parse::<u16>()
             .unwrap_or_else(|_| panic!("SMTP_PORT must be a valid port number: {}", smtp_port_str));
 
         Self {

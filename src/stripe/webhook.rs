@@ -1,16 +1,16 @@
 use hmac::{Hmac, Mac};
+use rocket::State;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use subtle::ConstantTimeEq;
-use rocket::State;
 use sqlx::SqlitePool;
+use subtle::ConstantTimeEq;
 
 use rocket::request::{self, FromRequest, Request};
 
 use crate::config::Config;
 use crate::db::mark_order_paid;
-use crate::stripe::verify_order::get_downloadable_books_for_order;
 use crate::email::send_purchase_email;
+use crate::stripe::verify_order::get_downloadable_books_for_order;
 
 /// Webhook endpoint to receive Stripe events.
 #[post("/webhook", data = "<payload>")]
@@ -29,20 +29,26 @@ pub async fn stripe_webhook(
         return Err(rocket::http::Status::BadRequest);
     }
 
-    verify_stripe_signature(payload.as_bytes(), &signature.0, &config.stripe_webhook_secret)
-        .map_err(|e| {
-            error!("Webhook signature verification failed: {:?}", e);
-            rocket::http::Status::Unauthorized
-        })?;
+    verify_stripe_signature(
+        payload.as_bytes(),
+        &signature.0,
+        &config.stripe_webhook_secret,
+    )
+    .map_err(|e| {
+        error!("Webhook signature verification failed: {:?}", e);
+        rocket::http::Status::Unauthorized
+    })?;
 
     // Parse the event
-    let json: serde_json::Value = serde_json::from_str(&payload)
-        .map_err(|e| {
-            error!("Failed to parse webhook JSON: {:?}", e);
-            rocket::http::Status::BadRequest
-        })?;
+    let json: serde_json::Value = serde_json::from_str(&payload).map_err(|e| {
+        error!("Failed to parse webhook JSON: {:?}", e);
+        rocket::http::Status::BadRequest
+    })?;
 
-    let event_type = json.get("type").and_then(|t| t.as_str()).unwrap_or_default();
+    let event_type = json
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or_default();
     info!("Webhook event type: {}", event_type);
 
     if event_type == "checkout.session.completed" {
@@ -56,25 +62,33 @@ pub async fn stripe_webhook(
         let customer_email = deserialized_response.data.object.customer_details.email;
         let payment_status = deserialized_response.data.object.payment_status;
 
-        info!("Processing checkout.session.completed for session {} with payment status {}", session_id, payment_status);
+        info!(
+            "Processing checkout.session.completed for session {} with payment status {}",
+            session_id, payment_status
+        );
 
         // Look up the order by stripe_session_id
-        let order_id = sqlx::query_scalar::<_, i64>("SELECT id FROM orders WHERE stripe_session_id = ?")
-            .bind(&session_id)
-            .fetch_optional(db.inner())
-            .await
-            .map_err(|e| {
-                error!("Database error looking up order for session {}: {:?}", session_id, e);
-                rocket::http::Status::InternalServerError
-            })?
-            .ok_or_else(|| {
-                warn!("Webhook received for unknown session {}", session_id);
-                rocket::http::Status::Ok
-            })?;
+        let order_id =
+            sqlx::query_scalar::<_, i64>("SELECT id FROM orders WHERE stripe_session_id = ?")
+                .bind(&session_id)
+                .fetch_optional(db.inner())
+                .await
+                .map_err(|e| {
+                    error!(
+                        "Database error looking up order for session {}: {:?}",
+                        session_id, e
+                    );
+                    rocket::http::Status::InternalServerError
+                })?
+                .ok_or_else(|| {
+                    warn!("Webhook received for unknown session {}", session_id);
+                    rocket::http::Status::Ok
+                })?;
 
         if payment_status == "paid" {
             info!("Marking order {} as paid", order_id);
-            mark_order_paid(db.inner(), order_id, &customer_email).await
+            mark_order_paid(db.inner(), order_id, &customer_email)
+                .await
                 .map_err(|e| {
                     error!("Error marking order {} paid: {:?}", order_id, e);
                     rocket::http::Status::InternalServerError
@@ -84,19 +98,32 @@ pub async fn stripe_webhook(
             info!("Fetching downloadable books for order {}", order_id);
             match get_downloadable_books_for_order(config, db.inner(), order_id).await {
                 Ok(books) => {
-                    info!("Got {} books for order {}, attempting to send email", books.len(), order_id);
+                    info!(
+                        "Got {} books for order {}, attempting to send email",
+                        books.len(),
+                        order_id
+                    );
                     match send_purchase_email(config, &customer_email, order_id, &books).await {
                         Ok(_) => {
-                            info!("Email for order #{} sent successfully to {}", order_id, customer_email);
+                            info!(
+                                "Email for order #{} sent successfully to {}",
+                                order_id, customer_email
+                            );
                         }
                         Err(e) => {
-                            error!("Failed to send purchase email for order {}: {:?}", order_id, e);
+                            error!(
+                                "Failed to send purchase email for order {}: {:?}",
+                                order_id, e
+                            );
                             // Continue processing - don't fail the webhook for email errors
                         }
                     }
                 }
                 Err(e) => {
-                    error!("Failed to get downloadable books for order {} email: {:?}", order_id, e);
+                    error!(
+                        "Failed to get downloadable books for order {} email: {:?}",
+                        order_id, e
+                    );
                     // Continue processing - don't fail the webhook for email errors
                 }
             }
@@ -106,7 +133,11 @@ pub async fn stripe_webhook(
     Ok(rocket::http::Status::Ok)
 }
 
-fn verify_stripe_signature(payload: &[u8], signature_header: &str, secret: &str) -> Result<(), anyhow::Error> {
+fn verify_stripe_signature(
+    payload: &[u8],
+    signature_header: &str,
+    secret: &str,
+) -> Result<(), anyhow::Error> {
     let mut timestamp = None;
     let mut signatures: Vec<String> = Vec::new();
 
@@ -118,7 +149,8 @@ fn verify_stripe_signature(payload: &[u8], signature_header: &str, secret: &str)
         }
     }
 
-    let timestamp = timestamp.ok_or_else(|| anyhow::anyhow!("missing timestamp in Stripe-Signature"))?;
+    let timestamp =
+        timestamp.ok_or_else(|| anyhow::anyhow!("missing timestamp in Stripe-Signature"))?;
     if signatures.is_empty() {
         return Err(anyhow::anyhow!("no v1 signatures in Stripe-Signature"));
     }
@@ -139,9 +171,9 @@ fn verify_stripe_signature(payload: &[u8], signature_header: &str, secret: &str)
     let expected = hex::encode(mac.finalize().into_bytes());
 
     // Use constant-time comparison to prevent timing attacks
-    let valid = signatures.iter().any(|s| {
-        s.as_bytes().ct_eq(expected.as_bytes()).into()
-    });
+    let valid = signatures
+        .iter()
+        .any(|s| s.as_bytes().ct_eq(expected.as_bytes()).into());
 
     if valid {
         Ok(())

@@ -1,8 +1,8 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
-use sqlx::Row;
 use anyhow::Result;
 use chrono::Utc;
-use tracing::{info, error};
+use sqlx::Row;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use tracing::{error, info};
 
 use crate::models::{Book, Edition};
 
@@ -109,7 +109,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             a.bio as author_bio
          FROM books b
          INNER JOIN authors a ON b.author_id = a.id
-         WHERE b.slug = ?"
+         WHERE b.slug = ?",
     )
     .bind(book_slug)
     .fetch_optional(db)
@@ -195,7 +195,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             publication_date: r.publication_date.flatten(),
             isbn: r.isbn.flatten(),
             edition_name: r.edition_name.flatten(),
-            files: None
+            files: None,
         })
         .collect();
 

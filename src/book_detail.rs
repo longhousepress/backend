@@ -1,7 +1,7 @@
-use rocket::{serde::json::Json, State, http::Status};
+use crate::db::get_book_by_slug;
+use rocket::{State, http::Status, serde::json::Json};
 use sqlx::SqlitePool;
 use tracing::error;
-use crate::db::get_book_by_slug;
 
 use crate::models::Book;
 

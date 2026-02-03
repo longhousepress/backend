@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 700px; margin: 0 auto; padding: 20px; }
+        h1 { color: #2c3e50; margin-bottom: 0.2em; }
+        h2 { color: #34495e; margin-top: 1.2em; }
+        .order-ref { color: #7f8c8d; font-size: 14px; margin: 8px 0 20px 0; }
+        .book { margin-bottom: 24px; padding: 14px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e6e9ee; }
+        .book-title { font-weight: 600; font-size: 18px; color: #2c3e50; }
+        .book-author { color: #7f8c8d; font-style: italic; margin-bottom: 8px; }
+        .download-links { margin-top: 12px; }
+        .download-link { display: inline-block; margin: 6px 8px 6px 0; padding: 8px 14px; background-color: #3498db; color: white; text-decoration: none; border-radius: 4px; font-weight: 600; }
+        .download-link:hover { background-color: #2980b9; }
+        .note { margin-top: 18px; font-size: 13px; color: #666; }
+        .footer { margin-top: 30px; padding-top: 18px; border-top: 1px solid #e6e9ee; font-size: 12px; color: #7f8c8d; }
+        .small { font-size: 12px; color: #9aa3ad; }
+        @media (max-width: 480px) {
+            body { padding: 12px; }
+            .book-title { font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Thank you for your purchase!</h1>
+    <p class="order-ref">Order Reference: #{{ order_id }}</p>
+
+    <p>Your purchase has been confirmed. Below are your downloadable items — the links will be valid for a short time. If you have any trouble, please contact support.</p>
+
+    <h2>Your Books</h2>
+
+    {% if books | length == 0 %}
+        <p class="small">No downloadable books were found for this order.</p>
+    {% else %}
+        {# Iterate books -> editions -> files. Editions may be a list per book. #}
+        {% for book in books %}
+            {% for edition in book.editions %}
+                <div class="book">
+                    <div class="book-title">{{ edition.title | safe }}</div>
+                    <div class="book-author">{{ edition.author_name | safe }}</div>
+
+                    {% if edition.files and edition.files | length > 0 %}
+                        <div class="download-links">
+                            <strong>Download</strong><br>
+                            {% for file in edition.files %}
+                                {# file.path is expected to be a relative API path like /api/download/xxxxx #}
+                                {% if base_url %}
+                                    <a href="{{ base_url | safe }}{{ file.path | safe }}" class="download-link" target="_blank" rel="noopener noreferrer">
+                                {% else %}
+                                    <a href="{{ file.path | safe }}" class="download-link" target="_blank" rel="noopener noreferrer">
+                                {% endif %}
+                                    {{ file.format | default(value="Download") | upper }}
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="note">No downloadable files were attached to this edition.</div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% endfor %}
+    {% endif %}
+
+    <div class="footer">
+        <p class="small">If you have any questions about your order, reply to this email or visit our support page.</p>
+        <p class="small">Thanks for choosing Dragon Books!</p>
+    </div>
+</body>
+</html>

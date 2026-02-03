@@ -1,28 +1,35 @@
 use anyhow::Result;
+use rocket::{State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqlitePool;
 use sqlx::FromRow;
-use rocket::{serde::json::Json, State, http::Status};
+use sqlx::sqlite::SqlitePool;
 use tracing::{error, warn};
 
 use crate::config::Config;
 use crate::db::{get_edition_name, get_edition_price};
 
-
 #[post("/api/checkout", data = "<request>")]
-pub async fn checkout(config: &State<Config>, db: &State<SqlitePool>, request: Json<CheckoutRequest>) -> Result<Json<CheckoutSession>, Status> {
+pub async fn checkout(
+    config: &State<Config>,
+    db: &State<SqlitePool>,
+    request: Json<CheckoutRequest>,
+) -> Result<Json<CheckoutSession>, Status> {
     // take ownership of the parsed request body
     let req = request.into_inner();
     match create_checkout_session(config, &db, &req).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
-        	error!("Error creating checkout session: {}", e);
-        	Err(Status::InternalServerError)
+            error!("Error creating checkout session: {}", e);
+            Err(Status::InternalServerError)
         }
     }
 }
 
-pub async fn create_checkout_session(config: &State<Config>, db: &State<SqlitePool>, req: &CheckoutRequest) -> Result<CheckoutSession> {
+pub async fn create_checkout_session(
+    config: &State<Config>,
+    db: &State<SqlitePool>,
+    req: &CheckoutRequest,
+) -> Result<CheckoutSession> {
     // Persist a pending order in the DB and get its number
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
@@ -48,13 +55,15 @@ pub async fn create_checkout_session(config: &State<Config>, db: &State<SqlitePo
 
     // Check that we didn't get an error (either client or server)
     if response.status().is_client_error() || response.status().is_server_error() {
-        return Err(anyhow::anyhow!("stripe returned {}: {}", response.status(), response.text().await?));
+        return Err(anyhow::anyhow!(
+            "stripe returned {}: {}",
+            response.status(),
+            response.text().await?
+        ));
     }
 
     // Get the text of the successful response
-    let response_text = response
-    	.text()
-     	.await?;
+    let response_text = response.text().await?;
 
     // Parse Stripe response to extract session id and url
     let stripe_json: StripeCheckoutSessionResponse = serde_json::from_str(&response_text)?;
@@ -63,53 +72,67 @@ pub async fn create_checkout_session(config: &State<Config>, db: &State<SqlitePo
     let url = stripe_json.url;
 
     // Update our order row with the stripe_session_id
-    match req.persist(db.inner(), &stripe_session_id, Some("GBP")).await {
-    	Ok(_) => Ok(CheckoutSession { url }),
-     	// If the DB insert fails, we need to clean up the dangling session
-    	Err(e) => {
-     		error!("Failed to persist order for Stripe session {}: {}", stripe_session_id, e);
-     		if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id).await {
-     			warn!("Failed to expire dangling Stripe session {}: {}", stripe_session_id, expire_err);
-     		}
-       		Err(e)
-     	}
+    match req
+        .persist(db.inner(), &stripe_session_id, Some("GBP"))
+        .await
+    {
+        Ok(_) => Ok(CheckoutSession { url }),
+        // If the DB insert fails, we need to clean up the dangling session
+        Err(e) => {
+            error!(
+                "Failed to persist order for Stripe session {}: {}",
+                stripe_session_id, e
+            );
+            if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id).await {
+                warn!(
+                    "Failed to expire dangling Stripe session {}: {}",
+                    stripe_session_id, expire_err
+                );
+            }
+            Err(e)
+        }
     }
 }
 
 async fn expire_stripe_session(config: &Config, id: &str) -> Result<()> {
- // Send to Stripe
+    // Send to Stripe
     let client = reqwest::Client::new();
     client
-        .post(format!("https://api.stripe.com/v1/checkout/sessions/{id}/expire"))
+        .post(format!(
+            "https://api.stripe.com/v1/checkout/sessions/{id}/expire"
+        ))
         .header("Authorization", format!("Bearer {}", config.stripe_api_key))
         .send()
         .await?;
 
-	Ok(())
+    Ok(())
 }
 
-pub async fn create_checkout_body(db: &SqlitePool, req: &CheckoutRequest) -> Result<Vec<StripeLineItem>> {
-	let mut items: Vec<StripeLineItem> = Vec::with_capacity(req.items.len());
-	for item in &req.items {
-		let name = get_edition_name(item.edition_id, db).await?;
-		let unit_amount = get_edition_price(item.edition_id, db).await?;
-		let final_item = StripeLineItem {
-			quantity: item.quantity,
-			price_data: StripePriceData {
-				currency: Currency::GBP,
-				product_data: StripeProductData { name },
-				unit_amount,
-			},
-		};
-		items.push(final_item);
-	}
-	Ok(items)
+pub async fn create_checkout_body(
+    db: &SqlitePool,
+    req: &CheckoutRequest,
+) -> Result<Vec<StripeLineItem>> {
+    let mut items: Vec<StripeLineItem> = Vec::with_capacity(req.items.len());
+    for item in &req.items {
+        let name = get_edition_name(item.edition_id, db).await?;
+        let unit_amount = get_edition_price(item.edition_id, db).await?;
+        let final_item = StripeLineItem {
+            quantity: item.quantity,
+            price_data: StripePriceData {
+                currency: Currency::GBP,
+                product_data: StripeProductData { name },
+                unit_amount,
+            },
+        };
+        items.push(final_item);
+    }
+    Ok(items)
 }
 
 #[derive(Serialize, Deserialize)]
 struct StripeCheckoutSessionResponse {
-	id: String,
- 	url: String,
+    id: String,
+    url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -170,7 +193,6 @@ pub struct CheckoutRequest {
 pub struct CheckoutSession {
     pub url: String,
 }
-
 
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct CheckoutItem {
