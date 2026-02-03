@@ -8,7 +8,6 @@ use rocket::{Request, State};
 use sha2::Sha256;
 use std::path::Path;
 use subtle::ConstantTimeEq;
-use tracing::{error, warn};
 
 // HMAC-SHA256 produces 32-byte (256-bit) signatures
 const HMAC_SHA256_OUTPUT_SIZE: usize = 32;
@@ -19,13 +18,13 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
     let file_path = match verify(tok, &config.token_key) {
         Ok(p) => p,
         Err(e) => {
-            warn!("Invalid download token: {}", e);
+            rocket::warn!("Invalid download token: {}", e);
             return Err(Status::Gone);
         }
     };
 
     let named_file = NamedFile::open(&file_path).await.map_err(|e| {
-        error!("Failed to open file for download: {:?}", e);
+        rocket::error!("Failed to open file for download: {:?}", e);
         Status::InternalServerError
     })?;
 

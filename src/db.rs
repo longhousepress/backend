@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::Utc;
 use sqlx::Row;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
-use tracing::{error, info};
+
 
 use crate::models::{Book, Edition};
 
@@ -234,7 +234,7 @@ pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
     match title_opt {
         Some(title) => Ok(title),
         None => {
-            error!("Edition id {} not found when fetching name", id);
+            rocket::error!("Edition id {} not found when fetching name", id);
             Err(anyhow::anyhow!("edition id {} not found", id))
         }
     }
@@ -249,7 +249,7 @@ pub async fn get_edition_price(id: i64, db: &SqlitePool) -> Result<u32> {
     match price_opt {
         Some(price) => Ok(price as u32),
         None => {
-            error!("Edition id {} not found when fetching price", id);
+            rocket::error!("Edition id {} not found when fetching price", id);
             Err(anyhow::anyhow!("edition id {} not found", id))
         }
     }
@@ -266,6 +266,6 @@ pub async fn mark_order_paid(pool: &SqlitePool, order_id: i64, email: &str) -> R
     .execute(pool)
     .await?;
 
-    info!("Marked order {} as paid for {}", order_id, email);
+    rocket::info!("Marked order {} as paid for {}", order_id, email);
     Ok(())
 }

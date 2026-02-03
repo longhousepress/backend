@@ -51,7 +51,7 @@ pub async fn verify_order_endpoint(
     .fetch_one(db.inner())
     .await
     .map_err(|e| {
-        error!(
+        rocket::error!(
             "Database error looking up order by session {}: {:?}",
             session_id, e
         );
@@ -74,7 +74,7 @@ pub async fn verify_order_endpoint(
         let paid_at = paid_at_str
             .parse::<chrono::DateTime<chrono::Utc>>()
             .map_err(|e| {
-                error!(
+                rocket::error!(
                     "Failed to parse paid_at timestamp for order {}: {:?}",
                     order_id, e
                 );
@@ -97,7 +97,7 @@ pub async fn verify_order_endpoint(
     let books = match get_downloadable_books_for_order(config, db.inner(), order_id).await {
         Ok(b) => b,
         Err(e) => {
-            error!(
+            rocket::error!(
                 "Error building downloadable metadata for order {}: {}",
                 order_id, e
             );
@@ -169,7 +169,7 @@ pub async fn get_downloadable_books_for_order(
                 "azw3" => FileFormat::Azw3,
                 "pdf" => FileFormat::Pdf,
                 other => {
-                    warn!(
+                    rocket::warn!(
                         "Unknown file format '{}' for edition {}, skipping",
                         other, er.id
                     );

@@ -1,6 +1,5 @@
 use rocket::{State, http::Status, serde::json::Json};
 use sqlx::SqlitePool;
-use tracing::error;
 
 use crate::db::load_books;
 use crate::models::Book;
@@ -16,7 +15,7 @@ pub async fn books(db: &State<SqlitePool>, query: LangQuery) -> Result<Json<Vec<
     match load_books(db, lang).await {
         Ok(books) => Ok(Json(books)),
         Err(e) => {
-            error!("Failed to load books catalog (lang={:?}): {}", lang, e);
+            rocket::error!("Failed to load books catalog (lang={:?}): {}", lang, e);
             Err(Status::InternalServerError)
         }
     }

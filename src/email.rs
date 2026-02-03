@@ -8,7 +8,7 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 use tera::{Context, Tera};
-use tracing::{error, info};
+
 
 // Render the purchase email using Tera and send it with lettre.
 // The template file should live at `templates/purchase_email.html.tera`
@@ -80,14 +80,14 @@ pub async fn send_purchase_email(
     // Send the email
     match mailer.send(email).await {
         Ok(_) => {
-            info!(
+            rocket::info!(
                 "Purchase email sent successfully to {} for order {}",
                 recipient_email, order_id
             );
             Ok(())
         }
         Err(e) => {
-            error!(
+            rocket::error!(
                 "Failed to send purchase email to {} for order {}: {:?}",
                 recipient_email, order_id, e
             );

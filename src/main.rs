@@ -9,9 +9,7 @@ mod stripe;
 
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
-use tracing::info;
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
 
 use crate::config::Config;
 use crate::db::load_db;
@@ -26,21 +24,11 @@ async fn rocket() -> _ {
     // Load config and crash immediately if any required env vars are missing
     let config = Config::from_env();
 
-    // Initialize logging to file
-    let file_appender = RollingFileAppender::new(Rotation::DAILY, &config.log_path, "dragon.log");
-    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
-    tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(non_blocking).with_ansi(false))
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("backend=info")))
-        .init();
-
-    info!("Dragon backend starting up");
-    info!("Logging initialized to: {}", config.log_path);
+    rocket::info!("Dragon backend starting up");
 
     // Load db and crash immediately if we can't
     let db = load_db().await.expect("Failed to load database");
-    info!("Database loaded successfully");
+    rocket::info!("Database loaded successfully");
 
     // Set CORS from config
     let allowed_origins = AllowedOrigins::some_exact(&config.allowed_origins);
@@ -54,13 +42,12 @@ async fn rocket() -> _ {
     .to_cors()
     .expect("CORS setup");
 
-    info!("CORS configured for origins: {:?}", config.allowed_origins);
+    rocket::info!("CORS configured for origins: {:?}", config.allowed_origins);
 
     // And launch
     rocket::build()
         .manage(config)
         .manage(db)
-        .manage(guard)
         .attach(cors)
         .mount(
             "/",

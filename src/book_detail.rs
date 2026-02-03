@@ -1,7 +1,6 @@
 use crate::db::get_book_by_slug;
 use rocket::{State, http::Status, serde::json::Json};
 use sqlx::SqlitePool;
-use tracing::error;
 
 use crate::models::Book;
 
@@ -11,7 +10,7 @@ pub async fn book_detail(db: &State<SqlitePool>, slug: String) -> Result<Json<Bo
         Ok(Some(book)) => Ok(Json(book)),
         Ok(None) => Err(Status::NotFound),
         Err(e) => {
-            error!("Failed to fetch book details for slug '{}': {}", slug, e);
+            rocket::error!("Failed to fetch book by slug '{}': {}", slug, e);
             Err(Status::InternalServerError)
         }
     }
