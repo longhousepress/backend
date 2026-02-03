@@ -70,7 +70,7 @@ pub async fn send_purchase_email(
     let mailer = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host_ip)
         .port(config.smtp_port)
         .tls(Tls::Required(
-            TlsParameters::new(config.smtp_host.clone().into())
+            TlsParameters::new(config.smtp_host.clone())
                 .context("invalid TLS parameters for SMTP")?,
         ))
         .credentials(creds)

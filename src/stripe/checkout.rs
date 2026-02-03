@@ -16,7 +16,7 @@ pub async fn checkout(
 ) -> Result<Json<CheckoutSession>, Status> {
     // take ownership of the parsed request body
     let req = request.into_inner();
-    match create_checkout_session(config, &db, &req).await {
+    match create_checkout_session(config, db, &req).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
             error!("Error creating checkout session: {}", e);
@@ -119,7 +119,7 @@ pub async fn create_checkout_body(
         let final_item = StripeLineItem {
             quantity: item.quantity,
             price_data: StripePriceData {
-                currency: Currency::GBP,
+                currency: Currency::Gbp,
                 product_data: StripeProductData { name },
                 unit_amount,
             },
@@ -173,7 +173,7 @@ pub struct PaymentIntentData {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Currency {
-    GBP,
+    Gbp,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

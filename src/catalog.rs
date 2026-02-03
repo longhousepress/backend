@@ -13,7 +13,7 @@ pub struct LangQuery {
 #[get("/api/books?<query..>", rank = 1)]
 pub async fn books(db: &State<SqlitePool>, query: LangQuery) -> Result<Json<Vec<Book>>, Status> {
     let lang = query.lang.as_deref();
-    match load_books(&db, lang).await {
+    match load_books(db, lang).await {
         Ok(books) => Ok(Json(books)),
         Err(e) => {
             error!("Failed to load books catalog (lang={:?}): {}", lang, e);
