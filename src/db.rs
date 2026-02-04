@@ -22,10 +22,8 @@ pub async fn load_db() -> Result<SqlitePool> {
     Ok(db)
 }
 
-pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>> {
-    // Get one edition per book, preferring the requested language.
-    let lang = lang.unwrap_or("eng");
-    
+pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
+    // Get ALL editions of ALL books
     let rows = sqlx::query!(
         "SELECT
             e.id as \"id!: i64\",
@@ -44,33 +42,14 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
             e.edition_notes as \"edition_notes: Option<String>\"
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
-         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = ?
+         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
          INNER JOIN formats f ON e.format_id = f.id
          INNER JOIN book_contributors bc ON bc.book_id = b.id
          INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
-         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = ?
+         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          LEFT JOIN edition_prices ep ON ep.edition_id = e.id AND ep.currency = 'GBP'
-         WHERE e.listed = 1 AND e.id IN (
-             SELECT COALESCE(
-                 -- First try: requested language
-                 (SELECT e1.id FROM editions e1
-                  WHERE e1.book_id = b.id AND e1.language = ? AND e1.listed = 1
-                  LIMIT 1),
-                 -- Second try: English
-                 (SELECT e2.id FROM editions e2
-                  WHERE e2.book_id = b.id AND e2.language = 'eng' AND e2.listed = 1
-                  LIMIT 1),
-                 -- Last resort: first edition found
-                 (SELECT e3.id FROM editions e3
-                  WHERE e3.book_id = b.id AND e3.listed = 1
-                  LIMIT 1)
-             )
-             FROM books b
-         )
-         ORDER BY bc.ordinal ASC NULLS LAST, b.id",
-        lang,
-        lang,
-        lang
+         WHERE e.listed = 1
+         ORDER BY b.id, e.id, bc.ordinal ASC NULLS LAST"
     )
     .fetch_all(db)
     .await?;
@@ -100,7 +79,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
              INNER JOIN persons p ON bc.person_id = p.id
              WHERE bc.book_id = ?
              ORDER BY bc.ordinal ASC NULLS LAST",
-            lang,
+            r.language,
             r.book_id
         )
         .fetch_all(db)
@@ -126,7 +105,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
              INNER JOIN persons p ON ec.person_id = p.id
              WHERE ec.edition_id = ?
              ORDER BY ec.ordinal ASC NULLS LAST",
-            lang,
+            r.language,
             r.id
         )
         .fetch_all(db)
@@ -227,7 +206,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
             title: r.title.clone(),
             author_name: r.author.clone(),
             author_bio: None,
-            price: r.price.unwrap_or(0),
+            price: r.price.flatten().unwrap_or(0),
             prices,
             cover: r.cover.clone(),
             cover_name: r.cover_name.flatten(),
@@ -277,7 +256,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     let Some(book) = book_row else {
         return Ok(None);
     };
-    
+
     let book_id = book.id;
     let book_original_language = book.original_language;
     let book_original_publication_year = book.original_publication_year;
@@ -361,7 +340,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     // Map the edition rows into Edition structs
     let mut editions: Vec<Edition> = Vec::new();
     let mut book_subtitle: Option<String> = None;
-    
+
     for r in edition_rows {
         // Store subtitle from first edition (same for all editions of a book)
         if book_subtitle.is_none() {
@@ -544,7 +523,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
 pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
     // Look up the edition title by numeric id via book_localizations
     let title_opt = sqlx::query_scalar::<_, String>(
-        "SELECT bl.title 
+        "SELECT bl.title
          FROM editions e
          INNER JOIN book_localizations bl ON bl.book_id = e.book_id AND bl.language = e.language
          WHERE e.id = ?"
