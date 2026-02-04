@@ -197,16 +197,23 @@ pub async fn get_downloadable_books_for_order(
             author_name: er.author_name,
             author_bio: None,
             price: 0, // not relevant for downloads
+            prices: Vec::new(),
             cover: er.cover,
             description: None,
             categories: Vec::new(),
             format: er.format,
             language: Some(er.language),
             page_count: None,
-            translator: None,
+            translator_name: None,
+            illustrator: None,
+            introduction_writer: None,
+            contributors: Vec::new(),
             publication_date: None,
             isbn: None,
             edition_name: None,
+            edition_notes: None,
+            cover_name: None,
+            cover_artist: None,
             files: Some(files),
             samples: None,
         };
@@ -215,8 +222,12 @@ pub async fn get_downloadable_books_for_order(
         let book = Book {
             id: er.id,
             title: edition.title.clone(),
+            subtitle: None,
             author: edition.author_name.clone(),
             book_slug: er.slug,
+            original_language: String::from("eng"), // default, not queried in this context
+            original_publication_year: None,
+            contributors: Vec::new(),
             editions: vec![edition],
         };
 

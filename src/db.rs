@@ -30,13 +30,18 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
         "SELECT
             e.id as \"id!: i64\",
             bl.title as \"title!: String\",
+            bl.subtitle as \"subtitle: Option<String>\",
             pl.name as \"author!: String\",
             ep.price as \"price: Option<i64>\",
             e.cover_filepath as \"cover!: String\",
+            e.cover_name as \"cover_name: Option<String>\",
             b.slug as \"book_slug!: String\",
             b.id as \"book_id!: i64\",
+            b.original_language as \"original_language!: String\",
+            b.original_publication_year as \"original_publication_year: Option<i64>\",
             f.name as \"format!: String\",
-            e.language as \"language!: String\"
+            e.language as \"language!: String\",
+            e.edition_notes as \"edition_notes: Option<String>\"
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = ?
@@ -86,6 +91,136 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
 
         let categories: Vec<String> = cat_rows.into_iter().map(|c| c.name).collect();
 
+        // Fetch all book-level contributors
+        let book_contributor_rows = sqlx::query!(
+            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
+             FROM book_contributors bc
+             INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = ?
+             INNER JOIN roles r ON bc.role_id = r.id
+             INNER JOIN persons p ON bc.person_id = p.id
+             WHERE bc.book_id = ?
+             ORDER BY bc.ordinal ASC NULLS LAST",
+            lang,
+            r.book_id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let book_contributors: Vec<crate::models::Contributor> = book_contributor_rows
+            .into_iter()
+            .map(|c| crate::models::Contributor {
+                name: c.name,
+                role: c.role,
+                bio: c.bio,
+                birth_year: c.birth_year,
+                death_year: c.death_year,
+            })
+            .collect();
+
+        // Fetch all edition-level contributors
+        let edition_contributor_rows = sqlx::query!(
+            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id
+             INNER JOIN persons p ON ec.person_id = p.id
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST",
+            lang,
+            r.id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let edition_contributors: Vec<crate::models::Contributor> = edition_contributor_rows
+            .iter()
+            .map(|c| crate::models::Contributor {
+                name: c.name.clone(),
+                role: c.role.clone(),
+                bio: c.bio.clone(),
+                birth_year: c.birth_year,
+                death_year: c.death_year,
+            })
+            .collect();
+
+        // Fetch all prices for this edition
+        let price_rows = sqlx::query!(
+            "SELECT currency, price
+             FROM edition_prices
+             WHERE edition_id = ?",
+            r.id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let prices: Vec<crate::models::Price> = price_rows
+            .into_iter()
+            .map(|p| crate::models::Price {
+                currency: p.currency,
+                amount: p.price,
+            })
+            .collect();
+
+        // Get translator if exists for this edition
+        let translator_name = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Translator'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
+        // Get cover artist if exists for this edition
+        let cover_artist = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Cover Artist'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
+        // Get illustrator if exists for this edition
+        let illustrator = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Illustrator'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
+        // Get introduction writer if exists for this edition
+        let introduction_writer = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Introduction Writer'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
         // Build a minimal Edition from the selected columns to include in Book.editions
         let edition = Edition {
             id: r.id,
@@ -93,16 +228,23 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
             author_name: r.author.clone(),
             author_bio: None,
             price: r.price.unwrap_or(0),
+            prices,
             cover: r.cover.clone(),
+            cover_name: r.cover_name.flatten(),
+            cover_artist,
             description: None,
             categories,
             format: r.format.clone(),
             language: Some(r.language.clone()),
             page_count: None,
-            translator: None,
+            translator_name,
+            illustrator,
+            introduction_writer,
+            contributors: edition_contributors,
             publication_date: None,
             isbn: None,
             edition_name: None,
+            edition_notes: r.edition_notes.flatten(),
             files: None,
             samples: None,
         };
@@ -110,8 +252,12 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
         books.push(Book {
             id: r.id,
             title: edition.title.clone(),
+            subtitle: r.subtitle.flatten(),
             author: edition.author_name.clone(),
             book_slug: r.book_slug,
+            original_language: r.original_language,
+            original_publication_year: r.original_publication_year.flatten(),
+            contributors: book_contributors,
             editions: vec![edition],
         });
     }
@@ -122,7 +268,7 @@ pub async fn load_books(db: &SqlitePool, lang: Option<&str>) -> Result<Vec<Book>
 pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<Book>> {
     // First, verify the book exists and get basic info
     let book_row = sqlx::query!(
-        "SELECT id, slug FROM books WHERE slug = ?",
+        "SELECT id, slug, original_language, original_publication_year FROM books WHERE slug = ?",
         book_slug
     )
     .fetch_optional(db)
@@ -133,18 +279,23 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     };
     
     let book_id = book.id;
+    let book_original_language = book.original_language;
+    let book_original_publication_year = book.original_publication_year;
 
     // Get all editions for this book with localized content
     let edition_rows = sqlx::query!(
         "SELECT
             e.id as \"id!: i64\",
             e.cover_filepath as \"cover!: String\",
+            e.cover_name as \"cover_name: Option<String>\",
             e.language as \"language!: String\",
             e.page_count as \"page_count: Option<i64>\",
             e.publication_date as \"publication_date: Option<String>\",
             e.isbn as \"isbn: Option<String>\",
             e.edition_name as \"edition_name: Option<String>\",
+            e.edition_notes as \"edition_notes: Option<String>\",
             bl.title as \"title!: String\",
+            bl.subtitle as \"subtitle: Option<String>\",
             bl.description as \"description: Option<String>\",
             f.name as \"format!: String\",
             pl.name as \"author_name!: String\",
@@ -182,16 +333,135 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
 
     let categories: Vec<String> = cat_rows.into_iter().map(|r| r.name).collect();
 
+    // Fetch all book-level contributors
+    let book_contributor_rows = sqlx::query!(
+        "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
+         FROM book_contributors bc
+         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id
+         INNER JOIN roles r ON bc.role_id = r.id
+         INNER JOIN persons p ON bc.person_id = p.id
+         WHERE bc.book_id = ?
+         ORDER BY bc.ordinal ASC NULLS LAST",
+        book_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    let book_contributors: Vec<crate::models::Contributor> = book_contributor_rows
+        .into_iter()
+        .map(|c| crate::models::Contributor {
+            name: c.name,
+            role: c.role,
+            bio: c.bio,
+            birth_year: c.birth_year,
+            death_year: c.death_year,
+        })
+        .collect();
+
     // Map the edition rows into Edition structs
     let mut editions: Vec<Edition> = Vec::new();
+    let mut book_subtitle: Option<String> = None;
     
     for r in edition_rows {
+        // Store subtitle from first edition (same for all editions of a book)
+        if book_subtitle.is_none() {
+            book_subtitle = r.subtitle.flatten();
+        }
+
+        // Fetch all edition-level contributors
+        let edition_contributor_rows = sqlx::query!(
+            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id
+             INNER JOIN roles r ON ec.role_id = r.id
+             INNER JOIN persons p ON ec.person_id = p.id
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST",
+            r.id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let edition_contributors: Vec<crate::models::Contributor> = edition_contributor_rows
+            .into_iter()
+            .map(|c| crate::models::Contributor {
+                name: c.name,
+                role: c.role,
+                bio: c.bio,
+                birth_year: c.birth_year,
+                death_year: c.death_year,
+            })
+            .collect();
+
+        // Fetch all prices for this edition
+        let price_rows = sqlx::query!(
+            "SELECT currency, price
+             FROM edition_prices
+             WHERE edition_id = ?",
+            r.id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let prices: Vec<crate::models::Price> = price_rows
+            .into_iter()
+            .map(|p| crate::models::Price {
+                currency: p.currency,
+                amount: p.price,
+            })
+            .collect();
+
         // Get translator if exists for this edition
-        let translator = sqlx::query_scalar::<_, String>(
+        let translator_name = sqlx::query_scalar::<_, String>(
             "SELECT pl.name
              FROM edition_contributors ec
              INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
              INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Translator'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
+        // Get cover artist if exists for this edition
+        let cover_artist = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Cover Artist'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
+        // Get illustrator if exists for this edition
+        let illustrator = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Illustrator'
+             WHERE ec.edition_id = ?
+             ORDER BY ec.ordinal ASC NULLS LAST
+             LIMIT 1"
+        )
+        .bind(&r.language)
+        .bind(r.id)
+        .fetch_optional(db)
+        .await?;
+
+        // Get introduction writer if exists for this edition
+        let introduction_writer = sqlx::query_scalar::<_, String>(
+            "SELECT pl.name
+             FROM edition_contributors ec
+             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Introduction Writer'
              WHERE ec.edition_id = ?
              ORDER BY ec.ordinal ASC NULLS LAST
              LIMIT 1"
@@ -232,16 +502,23 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             author_name: r.author_name,
             author_bio: r.author_bio.flatten(),
             price: r.price.flatten().unwrap_or(0),
+            prices,
             cover: r.cover,
+            cover_name: r.cover_name.flatten(),
+            cover_artist,
             description: r.description.flatten(),
             categories: categories.clone(),
             format: r.format,
             language: Some(r.language),
             page_count: r.page_count.flatten(),
-            translator,
+            translator_name,
+            illustrator,
+            introduction_writer,
+            contributors: edition_contributors,
             publication_date: r.publication_date.flatten(),
             isbn: r.isbn.flatten(),
             edition_name: r.edition_name.flatten(),
+            edition_notes: r.edition_notes.flatten(),
             files: None,
             samples,
         });
@@ -253,8 +530,12 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     Ok(Some(Book {
         id: rep.id,
         title: rep.title.clone(),
+        subtitle: book_subtitle,
         author: rep.author_name.clone(),
         book_slug: book_slug.to_string(),
+        original_language: book_original_language,
+        original_publication_year: book_original_publication_year,
+        contributors: book_contributors,
         editions,
     }))
 }
