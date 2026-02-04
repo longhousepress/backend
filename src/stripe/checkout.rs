@@ -219,14 +219,19 @@ impl CheckoutRequest {
         let mut tx = pool.begin().await?;
 
         // Compute total and validate edition ids within the transaction
+        let currency = currency.unwrap_or("GBP");
         let mut total_amount: i64 = 0;
         for item in &self.items {
             let edition_id: i64 = item.edition_id;
 
             // Read the current price for this edition using the transaction
-            let row = sqlx::query!("SELECT price FROM editions WHERE id = ?", edition_id)
-                .fetch_one(&mut *tx)
-                .await?;
+            let row = sqlx::query!(
+                "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
+                edition_id,
+                currency
+            )
+            .fetch_one(&mut *tx)
+            .await?;
             let price: i64 = row.price;
             total_amount += price * (item.quantity as i64);
         }
@@ -248,18 +253,23 @@ impl CheckoutRequest {
             let edition_id: i64 = item.edition_id;
 
             // capture the price at purchase time again to ensure consistency
-            let row = sqlx::query!("SELECT price FROM editions WHERE id = ?", edition_id)
-                .fetch_one(&mut *tx)
-                .await?;
+            let row = sqlx::query!(
+                "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
+                edition_id,
+                currency
+            )
+            .fetch_one(&mut *tx)
+            .await?;
             let price_at_purchase: i64 = row.price;
 
             sqlx::query(
-                "INSERT INTO order_items (order_id, edition_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?)",
+                "INSERT INTO order_items (order_id, edition_id, quantity, price_at_purchase, currency_at_purchase) VALUES (?, ?, ?, ?, ?)",
             )
             .bind(order_id)
             .bind(edition_id)
             .bind(item.quantity as i64)
             .bind(price_at_purchase)
+            .bind(currency)
             .execute(&mut *tx)
             .await?;
         }

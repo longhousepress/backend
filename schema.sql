@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS person_localizations (
     FOREIGN KEY (person_id) REFERENCES persons(id) ON DELETE CASCADE
 ) STRICT;
 
-CREATE INDEX idx_person_localizations_person_id ON person_localizations(person_id);
-CREATE INDEX idx_person_localizations_language ON person_localizations(language);
+CREATE INDEX IF NOT EXISTS idx_person_localizations_person_id ON person_localizations(person_id);
+CREATE INDEX IF NOT EXISTS idx_person_localizations_language ON person_localizations(language);
 
 -- The abstract "work" - the book as a concept
 CREATE TABLE IF NOT EXISTS books (
@@ -44,8 +44,8 @@ CREATE TABLE IF NOT EXISTS book_localizations (
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 ) STRICT;
 
-CREATE INDEX idx_book_localizations_book_id ON book_localizations(book_id);
-CREATE INDEX idx_book_localizations_language ON book_localizations(language);
+CREATE INDEX IF NOT EXISTS idx_book_localizations_book_id ON book_localizations(book_id);
+CREATE INDEX IF NOT EXISTS idx_book_localizations_language ON book_localizations(language);
 
 -- Roles lookup table (Author, Translator, Illustrator, Editor, etc.)
 CREATE TABLE IF NOT EXISTS roles (
@@ -73,8 +73,8 @@ CREATE TABLE IF NOT EXISTS book_contributors (
     FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE RESTRICT
 ) STRICT;
 
-CREATE INDEX idx_book_contributors_person_id ON book_contributors(person_id);
-CREATE INDEX idx_book_contributors_book_id ON book_contributors(book_id);
+CREATE INDEX IF NOT EXISTS idx_book_contributors_person_id ON book_contributors(person_id);
+CREATE INDEX IF NOT EXISTS idx_book_contributors_book_id ON book_contributors(book_id);
 
 -- Format lookup table (physical / commercial formats)
 CREATE TABLE IF NOT EXISTS formats (
@@ -108,10 +108,10 @@ CREATE TABLE IF NOT EXISTS editions (
     FOREIGN KEY (format_id) REFERENCES formats(id) ON DELETE RESTRICT
 ) STRICT;
 
-CREATE INDEX idx_editions_book_id ON editions(book_id);
-CREATE INDEX idx_editions_isbn ON editions(isbn) WHERE isbn IS NOT NULL;
-CREATE INDEX idx_editions_listed ON editions(listed);
-CREATE INDEX idx_editions_language ON editions(language);
+CREATE INDEX IF NOT EXISTS idx_editions_book_id ON editions(book_id);
+CREATE INDEX IF NOT EXISTS idx_editions_isbn ON editions(isbn) WHERE isbn IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_editions_listed ON editions(listed);
+CREATE INDEX IF NOT EXISTS idx_editions_language ON editions(language);
 
 -- Edition-level contributors (translators, cover artists, etc.)
 CREATE TABLE IF NOT EXISTS edition_contributors (
@@ -125,8 +125,8 @@ CREATE TABLE IF NOT EXISTS edition_contributors (
     FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE RESTRICT
 ) STRICT;
 
-CREATE INDEX idx_edition_contributors_person_id ON edition_contributors(person_id);
-CREATE INDEX idx_edition_contributors_edition_id ON edition_contributors(edition_id);
+CREATE INDEX IF NOT EXISTS idx_edition_contributors_person_id ON edition_contributors(person_id);
+CREATE INDEX IF NOT EXISTS idx_edition_contributors_edition_id ON edition_contributors(edition_id);
 
 -- Prices for editions in different currencies
 CREATE TABLE IF NOT EXISTS edition_prices (
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS edition_prices (
     FOREIGN KEY (edition_id) REFERENCES editions(id) ON DELETE CASCADE
 ) STRICT;
 
-CREATE INDEX idx_edition_prices_edition_id ON edition_prices(edition_id);
+CREATE INDEX IF NOT EXISTS idx_edition_prices_edition_id ON edition_prices(edition_id);
 
 -- File format lookup table (delivery artifacts)
 CREATE TABLE IF NOT EXISTS file_formats (
@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS files (
     FOREIGN KEY (file_format_id) REFERENCES file_formats(id) ON DELETE RESTRICT
 ) STRICT;
 
-CREATE INDEX idx_files_edition_id ON files(edition_id);
+CREATE INDEX IF NOT EXISTS idx_files_edition_id ON files(edition_id);
 
 -- Categories / genres
 CREATE TABLE IF NOT EXISTS categories (
@@ -187,8 +187,8 @@ CREATE TABLE IF NOT EXISTS book_categories (
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
 ) STRICT;
 
-CREATE INDEX idx_book_categories_category_id ON book_categories(category_id);
-CREATE INDEX idx_book_categories_book_id ON book_categories(book_id);
+CREATE INDEX IF NOT EXISTS idx_book_categories_category_id ON book_categories(category_id);
+CREATE INDEX IF NOT EXISTS idx_book_categories_book_id ON book_categories(book_id);
 
 -- Orders
 CREATE TABLE IF NOT EXISTS orders (
@@ -203,9 +203,9 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at TEXT
 ) STRICT;
 
-CREATE INDEX idx_orders_stripe_session ON orders(stripe_session_id);
-CREATE INDEX idx_orders_email ON orders(email) WHERE email IS NOT NULL;
-CREATE INDEX idx_orders_paid ON orders(paid);
+CREATE INDEX IF NOT EXISTS idx_orders_stripe_session ON orders(stripe_session_id);
+CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email) WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_paid ON orders(paid);
 
 -- Items in an order (editions purchased)
 CREATE TABLE IF NOT EXISTS order_items (
@@ -219,12 +219,12 @@ CREATE TABLE IF NOT EXISTS order_items (
     FOREIGN KEY (edition_id) REFERENCES editions(id) ON DELETE RESTRICT
 ) STRICT;
 
-CREATE INDEX idx_order_items_order_id ON order_items(order_id);
-CREATE INDEX idx_order_items_edition_id ON order_items(edition_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_edition_id ON order_items(edition_id);
 
 -- Helpful views for common queries
 -- View: Editions with localized content (no fallbacks)
-CREATE VIEW editions_catalog AS
+CREATE VIEW IF NOT EXISTS editions_catalog AS
 SELECT
     e.id as edition_id,
     e.isbn,

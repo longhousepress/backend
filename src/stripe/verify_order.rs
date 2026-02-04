@@ -126,18 +126,22 @@ pub async fn get_downloadable_books_for_order(
     let edition_rows = sqlx::query!(
         "SELECT
             e.id as \"id!: i64\",
-            e.title as \"title!: String\",
-            CAST(COALESCE(e.author_name, a.name) AS TEXT) as \"author_name!: String\",
-            e.cover as \"cover!: String\",
+            bl.title as \"title!: String\",
+            pl.name as \"author_name!: String\",
+            e.cover_filepath as \"cover!: String\",
             f.name as \"format!: String\",
-            e.language as \"language: Option<String>\",
+            e.language as \"language!: String\",
             b.slug as \"slug!: String\"
          FROM order_items oi
          INNER JOIN editions e ON oi.edition_id = e.id
          INNER JOIN books b ON e.book_id = b.id
-         INNER JOIN authors a ON b.author_id = a.id
+         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
          INNER JOIN formats f ON e.format_id = f.id
-         WHERE oi.order_id = ?",
+         INNER JOIN book_contributors bc ON bc.book_id = b.id
+         INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
+         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
+         WHERE oi.order_id = ?
+         ORDER BY bc.ordinal ASC NULLS LAST",
         order_id
     )
     .fetch_all(db)
@@ -155,7 +159,7 @@ pub async fn get_downloadable_books_for_order(
             "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
              FROM files
              INNER JOIN file_formats ff ON files.file_format_id = ff.id
-             WHERE files.edition_id = ?",
+             WHERE files.edition_id = ? AND ff.name != 'sample'",
             er.id
         )
         .fetch_all(db)
@@ -197,13 +201,14 @@ pub async fn get_downloadable_books_for_order(
             description: None,
             categories: Vec::new(),
             format: er.format,
-            language: er.language.flatten(),
+            language: Some(er.language),
             page_count: None,
             translator: None,
             publication_date: None,
             isbn: None,
             edition_name: None,
             files: Some(files),
+            samples: None,
         };
 
         // Build a Book containing this edition

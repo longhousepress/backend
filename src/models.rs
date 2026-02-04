@@ -29,6 +29,7 @@ pub struct Edition {
     pub isbn: Option<String>,
     pub edition_name: Option<String>,
     pub files: Option<Vec<File>>,
+    pub samples: Option<Vec<File>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,4 +44,5 @@ pub enum FileFormat {
     Kepub,
     Azw3,
     Pdf,
+    Sample,
 }
