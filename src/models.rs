@@ -38,7 +38,6 @@ pub struct Edition {
     pub title: String,
     pub author_name: String,
     pub author_bio: Option<String>,
-    pub price: i64,
     pub prices: Vec<Price>,
     pub cover: String,
     pub cover_name: Option<String>,

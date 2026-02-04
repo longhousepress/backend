@@ -196,7 +196,6 @@ pub async fn get_downloadable_books_for_order(
             title: er.title,
             author_name: er.author_name,
             author_bio: None,
-            price: 0, // not relevant for downloads
             prices: Vec::new(),
             cover: er.cover,
             description: None,

@@ -30,7 +30,6 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
             bl.title as \"title!: String\",
             bl.subtitle as \"subtitle: Option<String>\",
             pl.name as \"author!: String\",
-            ep.price as \"price: Option<i64>\",
             e.cover_filepath as \"cover!: String\",
             e.cover_name as \"cover_name: Option<String>\",
             b.slug as \"book_slug!: String\",
@@ -47,7 +46,6 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
          INNER JOIN book_contributors bc ON bc.book_id = b.id
          INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
-         LEFT JOIN edition_prices ep ON ep.edition_id = e.id AND ep.currency = 'GBP'
          WHERE e.listed = 1
          ORDER BY b.id, e.id, bc.ordinal ASC NULLS LAST"
     )
@@ -206,7 +204,6 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
             title: r.title.clone(),
             author_name: r.author.clone(),
             author_bio: None,
-            price: r.price.flatten().unwrap_or(0),
             prices,
             cover: r.cover.clone(),
             cover_name: r.cover_name.flatten(),
@@ -278,8 +275,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             bl.description as \"description: Option<String>\",
             f.name as \"format!: String\",
             pl.name as \"author_name!: String\",
-            pl.bio as \"author_bio: Option<String>\",
-            ep.price as \"price: Option<i64>\"
+            pl.bio as \"author_bio: Option<String>\"
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN formats f ON e.format_id = f.id
@@ -287,7 +283,6 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
          INNER JOIN book_contributors bc ON bc.book_id = b.id
          INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
-         LEFT JOIN edition_prices ep ON ep.edition_id = e.id AND ep.currency = 'GBP'
          WHERE b.id = ? AND e.listed = 1
          ORDER BY bc.ordinal ASC NULLS LAST",
         book_id
@@ -480,7 +475,6 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             title: r.title,
             author_name: r.author_name,
             author_bio: r.author_bio.flatten(),
-            price: r.price.flatten().unwrap_or(0),
             prices,
             cover: r.cover,
             cover_name: r.cover_name.flatten(),
