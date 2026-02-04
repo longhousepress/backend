@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, paid, paid_at, email FROM orders WHERE stripe_session_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "paid",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "paid_at",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "email",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "563750f7df2e9c7c3b7c6d59cd24dcaec629452d1cdf91ab42c5a5fc255c4802"
+}
