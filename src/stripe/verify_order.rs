@@ -3,7 +3,6 @@ use crate::models::{Book, Edition, File, FileFormat};
 use anyhow::Result as AnyhowResult;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, Mac};
-use rand::{RngCore, rng};
 use rocket::Request;
 use rocket::State;
 use rocket::http::Status;
@@ -236,14 +235,12 @@ pub async fn get_downloadable_books_for_order(
     Ok(books)
 }
 
-// Mint a unique download token
+// Mint a download token with version byte for future compatibility
 pub fn mint(filepath: &str, token_key: &str) -> String {
     let mut payload = Vec::new();
 
-    // 1) random nonce (16 bytes) - just for uniqueness
-    let mut nonce = [0u8; 16];
-    rng().fill_bytes(&mut nonce);
-    payload.extend_from_slice(&nonce);
+    // 1) version byte (1 byte) - for future version checking
+    payload.push(1u8);
 
     // 2) filepath length (2 bytes) + filepath
     let path_bytes = filepath.as_bytes();

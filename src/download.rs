@@ -12,6 +12,9 @@ use subtle::ConstantTimeEq;
 // HMAC-SHA256 produces 32-byte (256-bit) signatures
 const HMAC_SHA256_OUTPUT_SIZE: usize = 32;
 
+// Current token format version
+const TOKEN_VERSION: u8 = 1;
+
 #[get("/api/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
     // Verify the token and extract the filepath from its payload
@@ -47,8 +50,8 @@ pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
         .decode(tok)
         .map_err(|_| "bad base64".to_string())?;
 
-    // Expect at minimum: header (18 bytes) + signature (HMAC-SHA256)
-    const MIN_PAYLOAD_AND_SIG: usize = 18 + HMAC_SHA256_OUTPUT_SIZE;
+    // Expect at minimum: version (1 byte) + path_len (2 bytes) + signature (32 bytes)
+    const MIN_PAYLOAD_AND_SIG: usize = 3 + HMAC_SHA256_OUTPUT_SIZE;
     if buf.len() < MIN_PAYLOAD_AND_SIG {
         return Err("token too short".to_string());
     }
@@ -69,19 +72,25 @@ pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
         return Err("signature mismatch".to_string());
     }
 
-    // Ensure payload contains at least the two bytes we use for path length
-    if payload.len() < 18 {
+    // Check version byte
+    let version = payload[0];
+    if version != TOKEN_VERSION {
+        return Err(format!("unsupported token version: {}", version));
+    }
+
+    // Ensure payload contains at least version (1 byte) + path_len (2 bytes)
+    if payload.len() < 3 {
         return Err("payload too short".to_string());
     }
 
-    // Read path length safely
+    // Read path length safely (bytes 1-2)
     let path_len = u16::from_be_bytes(
-        payload[16..18]
+        payload[1..3]
             .try_into()
             .map_err(|_| "malformed payload".to_string())?,
     ) as usize;
 
-    let start = 18usize;
+    let start = 3usize;
     // Bounds-check the path slice to avoid panics on malformed tokens
     if start.checked_add(path_len).is_none() || start + path_len > payload.len() {
         return Err("path length out of bounds".to_string());
