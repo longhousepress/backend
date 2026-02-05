@@ -22,8 +22,17 @@ async fn rocket() -> _ {
     // Load .env and crash immediately if it's not there
     dotenvy::dotenv().expect("Failed to load .env");
 
-    // Load config and crash immediately if any required env vars are missing
-    let config = Config::from_env();
+    // Load config from environment and exit with non-zero status if any required vars are
+    // missing or invalid. Config::from_env now returns a Result, so handle errors here.
+    let config = match Config::from_env() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            // Rocket logging isn't initialized yet; print to stderr and exit non-zero so
+            // process managers can detect startup failure.
+            eprintln!("Failed to load configuration: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     rocket::info!("Dragon backend starting up");
 
