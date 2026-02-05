@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
+use tera::Tera;
 
 use rocket::request::{self, FromRequest, Request};
 
@@ -17,6 +18,7 @@ use crate::stripe::verify_order::get_downloadable_books_for_order;
 pub async fn stripe_webhook(
     config: &State<Config>,
     db: &State<SqlitePool>,
+    tera: &State<Tera>,
     payload: String,
     signature: StripeSignature,
     content_type: ContentType,
@@ -103,7 +105,7 @@ pub async fn stripe_webhook(
                         books.len(),
                         order_id
                     );
-                    match send_purchase_email(config, &customer_email, order_id, &books).await {
+                    match send_purchase_email(config.inner(), tera.inner(), &customer_email, order_id, &books).await {
                         Ok(_) => {
                             rocket::info!(
                                 "Email for order #{} sent successfully to {}",

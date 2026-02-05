@@ -9,6 +9,7 @@ mod stripe;
 
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
+use tera::Tera;
 
 
 use crate::config::Config;
@@ -30,6 +31,10 @@ async fn rocket() -> _ {
     let db = load_db().await.expect("Failed to load database");
     rocket::info!("Database loaded successfully");
 
+    // Initialize Tera templates once at startup and manage it in Rocket state.
+    let tera = Tera::new("templates/**/*.html.tera")
+        .expect("Failed to initialize Tera templates");
+
     // Set CORS from config
     let allowed_origins = AllowedOrigins::some_exact(&config.allowed_origins);
     let cors = CorsOptions {
@@ -46,6 +51,7 @@ async fn rocket() -> _ {
 
     // And launch
     rocket::build()
+        .manage(tera)
         .manage(config)
         .manage(db)
         .attach(cors)

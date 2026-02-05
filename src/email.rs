@@ -14,14 +14,12 @@ use tera::{Context, Tera};
 // The template file should live at `templates/purchase_email.html.tera`
 pub async fn send_purchase_email(
     config: &Config,
+    tera: &Tera,
     recipient_email: &str,
     order_id: i64,
     books: &[Book],
 ) -> Result<()> {
-    // Initialize Tera each call. Template parsing errors are considered fatal at runtime.
-    let tera = Tera::new("templates/**/*.html.tera")
-        .map_err(|e| anyhow::anyhow!("template initialization error: {}", e))?;
-
+    // Use the managed Tera instance provided by Rocket state (initialized at startup).
     // Build template context
     let mut ctx = Context::new();
     ctx.insert("order_id", &order_id);
