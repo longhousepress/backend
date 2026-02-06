@@ -114,16 +114,17 @@ pub async fn verify_order_endpoint(
 /// Retrieve downloadable books for a given order.
 /// Queries order_items directly to get all editions purchased, then builds
 /// the downloadable metadata with minted tokens for each file.
-/// Groups editions by book_id so each book appears once with all its purchased editions.
+/// Respects quantity - if quantity > 1, returns multiple Book objects each with unique tokens.
 pub async fn get_downloadable_books_for_order(
     config: &Config,
     db: &SqlitePool,
     order_id: i64,
 ) -> AnyhowResult<Vec<Book>> {
-    // Query all editions for this order with book and author info
+    // Query all order items with their quantities and edition info
     // Using GROUP_CONCAT to handle multiple authors per book
-    let edition_rows = sqlx::query!(
+    let order_item_rows = sqlx::query!(
         "SELECT
+            oi.quantity as \"quantity!: i64\",
             e.id as \"edition_id!: i64\",
             b.id as \"book_id!: i64\",
             bl.title as \"title!: String\",
@@ -141,106 +142,105 @@ pub async fn get_downloadable_books_for_order(
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE oi.order_id = ?
-         GROUP BY e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug
+         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug
          ORDER BY b.id, e.id",
         order_id
     )
     .fetch_all(db)
     .await?;
 
-    if edition_rows.is_empty() {
+    if order_item_rows.is_empty() {
         return Ok(Vec::new());
     }
 
-    // Group editions by book_id
-    use std::collections::HashMap;
-    let mut books_map: HashMap<i64, Book> = HashMap::new();
+    // Each order_item with quantity N gets expanded into N separate books
+    // This ensures each "copy" gets unique download tokens
+    let mut books: Vec<Book> = Vec::new();
 
-    for er in edition_rows {
-        // Fetch files for this edition
-        let file_rows = sqlx::query!(
-            "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
-             FROM files
-             INNER JOIN file_formats ff ON files.file_format_id = ff.id
-             WHERE files.edition_id = ? AND ff.name != 'sample'",
-            er.edition_id
-        )
-        .fetch_all(db)
-        .await?;
+    for oi_row in order_item_rows {
+        // Repeat for the quantity purchased (e.g., if quantity = 2, create 2 book objects)
+        for _ in 0..oi_row.quantity {
+            // Fetch files for this edition (each iteration gets fresh tokens)
+            let file_rows = sqlx::query!(
+                "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
+                 FROM files
+                 INNER JOIN file_formats ff ON files.file_format_id = ff.id
+                 WHERE files.edition_id = ? AND ff.name != 'sample'",
+                oi_row.edition_id
+            )
+            .fetch_all(db)
+            .await?;
 
-        let mut files: Vec<File> = Vec::with_capacity(file_rows.len());
-        for fr in file_rows {
-            let fmt = match fr.format_name.as_str() {
-                "epub" => FileFormat::Epub,
-                "kepub" => FileFormat::Kepub,
-                "azw3" => FileFormat::Azw3,
-                "pdf" => FileFormat::Pdf,
-                other => {
-                    rocket::warn!(
-                        "Unknown file format '{}' for edition {}, skipping",
-                        other, er.edition_id
-                    );
-                    continue; // skip unknown formats
-                }
+            let mut files: Vec<File> = Vec::with_capacity(file_rows.len());
+            for fr in file_rows {
+                let fmt = match fr.format_name.as_str() {
+                    "epub" => FileFormat::Epub,
+                    "kepub" => FileFormat::Kepub,
+                    "azw3" => FileFormat::Azw3,
+                    "pdf" => FileFormat::Pdf,
+                    other => {
+                        rocket::warn!(
+                            "Unknown file format '{}' for edition {}, skipping",
+                            other, oi_row.edition_id
+                        );
+                        continue; // skip unknown formats
+                    }
+                };
+
+                // Mint a download token on-demand for this filepath
+                // Each iteration creates unique tokens even for the same file
+                let token = mint(&fr.file_path, &config.token_key);
+                let url = format!("/api/download/{}", token);
+                files.push(File {
+                    format: fmt,
+                    path: url,
+                });
+            }
+
+            // Build a minimal Edition
+            let edition = Edition {
+                id: oi_row.edition_id,
+                title: oi_row.title.clone(),
+                author_name: oi_row.author_names.clone(),
+                author_bio: None,
+                prices: Vec::new(),
+                cover: oi_row.cover.clone(),
+                cover_name: None,
+                cover_artist: None,
+                description: None,
+                categories: Vec::new(),
+                format: oi_row.format.clone(),
+                language: Some(oi_row.language.clone()),
+                page_count: None,
+                translator_name: None,
+                illustrator: None,
+                introduction_writer: None,
+                contributors: Vec::new(),
+                publication_date: None,
+                isbn: None,
+                edition_name: None,
+                edition_notes: None,
+                files: Some(files),
+                samples: None,
             };
 
-            // Mint a download token on-demand for this filepath
-            let token = mint(&fr.file_path, &config.token_key);
-            let url = format!("/api/download/{}", token);
-            files.push(File {
-                format: fmt,
-                path: url,
-            });
-        }
-
-        // Build a minimal Edition
-        let edition = Edition {
-            id: er.edition_id,
-            title: er.title.clone(),
-            author_name: er.author_names.clone(),
-            author_bio: None,
-            prices: Vec::new(),
-            cover: er.cover,
-            description: None,
-            categories: Vec::new(),
-            format: er.format.clone(),
-            language: Some(er.language.clone()),
-            page_count: None,
-            translator_name: None,
-            illustrator: None,
-            introduction_writer: None,
-            contributors: Vec::new(),
-            publication_date: None,
-            isbn: None,
-            edition_name: None,
-            edition_notes: None,
-            cover_name: None,
-            cover_artist: None,
-            files: Some(files),
-            samples: None,
-        };
-
-        // Add edition to the appropriate book, or create a new book entry
-        books_map
-            .entry(er.book_id)
-            .or_insert_with(|| Book {
-                id: er.book_id,
-                title: er.title.clone(),
+            // Create a separate Book object for each quantity
+            // This ensures customers can gift or distribute copies with unique tokens
+            let book = Book {
+                id: oi_row.book_id,
+                title: oi_row.title.clone(),
                 subtitle: None,
-                author: er.author_names.clone(),
-                book_slug: er.slug.clone(),
+                author: oi_row.author_names.clone(),
+                book_slug: oi_row.slug.clone(),
                 original_language: String::from("eng"), // default, not queried in this context
                 original_publication_year: None,
                 contributors: Vec::new(),
-                editions: Vec::new(),
-            })
-            .editions
-            .push(edition);
-    }
+                editions: vec![edition],
+            };
 
-    // Convert HashMap to Vec and sort by book_id for consistent ordering
-    let mut books: Vec<Book> = books_map.into_iter().map(|(_, book)| book).collect();
-    books.sort_by_key(|b| b.id);
+            books.push(book);
+        }
+    }
 
     Ok(books)
 }
