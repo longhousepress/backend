@@ -80,12 +80,14 @@ pub async fn create_checkout_session(
         Err(e) => {
             rocket::error!(
                 "Failed to persist order for Stripe session {}: {}",
-                stripe_session_id, e
+                stripe_session_id,
+                e
             );
             if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id).await {
                 rocket::warn!(
                     "Failed to expire dangling Stripe session {}: {}",
-                    stripe_session_id, expire_err
+                    stripe_session_id,
+                    expire_err
                 );
             }
             Err(e)

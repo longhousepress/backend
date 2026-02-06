@@ -32,7 +32,6 @@ pub fn mint(filepath: &str, token_key: &str) -> String {
     URL_SAFE_NO_PAD.encode(&payload)
 }
 
-
 pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
     // Decode base64 token
     let buf = URL_SAFE_NO_PAD

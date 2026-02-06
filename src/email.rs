@@ -9,7 +9,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 use tera::{Context, Tera};
 
-
 // Render the purchase email using Tera and send it with lettre.
 // The template file should live at `templates/purchase_email.html.tera`
 pub async fn send_purchase_email(
@@ -38,7 +37,9 @@ pub async fn send_purchase_email(
                 .parse()
                 .context("invalid from address")?,
         )
-        .to(recipient_email.parse().context("invalid recipient address")?)
+        .to(recipient_email
+            .parse()
+            .context("invalid recipient address")?)
         .subject("Your Dragon Books Order - Download Links Inside")
         .header(ContentType::TEXT_HTML)
         .body(body)
@@ -80,14 +81,17 @@ pub async fn send_purchase_email(
         Ok(_) => {
             rocket::info!(
                 "Purchase email sent successfully to {} for order {}",
-                recipient_email, order_id
+                recipient_email,
+                order_id
             );
             Ok(())
         }
         Err(e) => {
             rocket::error!(
                 "Failed to send purchase email to {} for order {}: {:?}",
-                recipient_email, order_id, e
+                recipient_email,
+                order_id,
+                e
             );
             Err(e.into())
         }

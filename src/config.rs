@@ -1,5 +1,5 @@
+use anyhow::{Result, anyhow};
 use std::env;
-use anyhow::{anyhow, Result};
 
 // Application configuration loaded from environment variables.
 // All fields are required and the application will panic at startup if any are missing.

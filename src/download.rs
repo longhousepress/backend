@@ -1,11 +1,11 @@
 use crate::config::Config;
 use crate::tokens::verify;
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use rocket::fs::NamedFile;
 use rocket::http::Status;
 use rocket::response::{Responder, Result as RespResult};
 use rocket::{Request, State};
 use std::path::Path;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 #[get("/api/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
@@ -52,15 +52,24 @@ impl<'r> Responder<'r, 'static> for DownloadResponder {
 
         // Use both filename (ASCII fallback) and filename* (RFC 5987) for maximum compatibility
         // The ASCII fallback replaces non-ASCII chars with underscores
-        let ascii_filename: String = self.filename
+        let ascii_filename: String = self
+            .filename
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
 
         response.set_raw_header(
             "Content-Disposition",
-            format!("attachment; filename=\"{}\"; filename*=UTF-8''{}",
-                    ascii_filename, encoded_filename),
+            format!(
+                "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+                ascii_filename, encoded_filename
+            ),
         );
         Ok(response)
     }

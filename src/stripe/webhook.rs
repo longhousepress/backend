@@ -56,7 +56,9 @@ pub async fn stripe_webhook(
     if event_type == "checkout.session.completed" {
         let deserialized_response: CheckoutSessionCompleted = serde_json::from_value(json)
             .map_err(|e| {
-                rocket::error!("Could not deserialize checkout.session.completed webhook event: {e}");
+                rocket::error!(
+                    "Could not deserialize checkout.session.completed webhook event: {e}"
+                );
                 rocket::http::Status::InternalServerError
             })?;
 
@@ -66,7 +68,8 @@ pub async fn stripe_webhook(
 
         rocket::info!(
             "Processing checkout.session.completed for session {} with payment status {}",
-            session_id, payment_status
+            session_id,
+            payment_status
         );
 
         // Look up the order by stripe_session_id
@@ -78,7 +81,8 @@ pub async fn stripe_webhook(
                 .map_err(|e| {
                     rocket::error!(
                         "Database error looking up order for session {}: {:?}",
-                        session_id, e
+                        session_id,
+                        e
                     );
                     rocket::http::Status::InternalServerError
                 })?
@@ -105,17 +109,27 @@ pub async fn stripe_webhook(
                         books.len(),
                         order_id
                     );
-                    match send_purchase_email(config.inner(), tera.inner(), &customer_email, order_id, &books).await {
+                    match send_purchase_email(
+                        config.inner(),
+                        tera.inner(),
+                        &customer_email,
+                        order_id,
+                        &books,
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             rocket::info!(
                                 "Email for order #{} sent successfully to {}",
-                                order_id, customer_email
+                                order_id,
+                                customer_email
                             );
                         }
                         Err(e) => {
                             rocket::error!(
                                 "Failed to send purchase email for order {}: {:?}",
-                                order_id, e
+                                order_id,
+                                e
                             );
                             // Continue processing - don't fail the webhook for email errors
                         }
@@ -124,7 +138,8 @@ pub async fn stripe_webhook(
                 Err(e) => {
                     rocket::error!(
                         "Failed to get downloadable books for order {} email: {:?}",
-                        order_id, e
+                        order_id,
+                        e
                     );
                     // Continue processing - don't fail the webhook for email errors
                 }

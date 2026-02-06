@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-use std::path::Path;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use std::path::Path;
 
 use crate::models::{Book, Edition};
 
@@ -57,7 +57,6 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
     let mut books_map: HashMap<i64, Book> = HashMap::new();
 
     for r in rows {
-
         // Fetch all edition-level contributors
         let edition_contributor_rows = sqlx::query!(
             "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
@@ -114,7 +113,12 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
 
         let (translator_name, cover_artist, illustrator, introduction_writer) =
             if let Some(roles) = contributor_roles {
-                (roles.translator_name, roles.cover_artist_name, roles.illustrator_name, roles.introduction_writer_name)
+                (
+                    roles.translator_name,
+                    roles.cover_artist_name,
+                    roles.illustrator_name,
+                    roles.introduction_writer_name,
+                )
             } else {
                 (None, None, None, None)
             };
@@ -192,8 +196,11 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
     // Now fetch categories and contributors for each unique book
     for (book_id, book) in books_map.iter_mut() {
         // Use the language of the first edition for fetching contributors
-        let language = book.editions[0].language.clone().unwrap_or_else(|| "eng".to_string());
-        
+        let language = book.editions[0]
+            .language
+            .clone()
+            .unwrap_or_else(|| "eng".to_string());
+
         // Fetch categories for this book
         let cat_rows = sqlx::query!(
             "SELECT c.name
@@ -408,7 +415,12 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
 
         let (translator_name, cover_artist, illustrator, introduction_writer) =
             if let Some(roles) = contributor_roles {
-                (roles.translator_name, roles.cover_artist_name, roles.illustrator_name, roles.introduction_writer_name)
+                (
+                    roles.translator_name,
+                    roles.cover_artist_name,
+                    roles.illustrator_name,
+                    roles.introduction_writer_name,
+                )
             } else {
                 (None, None, None, None)
             };
@@ -434,7 +446,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
                         format: crate::models::FileFormat::Sample,
                         path: sr.file_path,
                     })
-                    .collect()
+                    .collect(),
             )
         };
 
@@ -488,7 +500,7 @@ pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
         "SELECT bl.title
          FROM editions e
          INNER JOIN book_localizations bl ON bl.book_id = e.book_id AND bl.language = e.language
-         WHERE e.id = ?"
+         WHERE e.id = ?",
     )
     .bind(id)
     .fetch_optional(db)
@@ -505,7 +517,7 @@ pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
 pub async fn get_edition_price(id: i64, db: &SqlitePool) -> Result<u32> {
     // Look up the edition price by numeric id from edition_prices (defaulting to GBP)
     let price_opt = sqlx::query_scalar::<_, i64>(
-        "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = 'GBP'"
+        "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = 'GBP'",
     )
     .bind(id)
     .fetch_optional(db)

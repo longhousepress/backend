@@ -7,8 +7,8 @@ use rocket::State;
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
 use rocket::serde::json::Json;
-use sqlx::SqlitePool;
 use serde::Serialize;
+use sqlx::SqlitePool;
 
 /// Small responder type to send an HTTP status and optionally include the order id
 /// in a custom header (used when returning 410 Gone).
@@ -50,7 +50,8 @@ pub async fn verify_order_endpoint(
     .map_err(|e| {
         rocket::error!(
             "Database error looking up order by session {}: {:?}",
-            session_id, e
+            session_id,
+            e
         );
         ErrorResponse::Status(Status::InternalServerError)
     })?;
@@ -73,7 +74,8 @@ pub async fn verify_order_endpoint(
             .map_err(|e| {
                 rocket::error!(
                     "Failed to parse paid_at timestamp for order {}: {:?}",
-                    order_id, e
+                    order_id,
+                    e
                 );
                 ErrorResponse::Status(Status::InternalServerError)
             })?;
@@ -96,7 +98,8 @@ pub async fn verify_order_endpoint(
         Err(e) => {
             rocket::error!(
                 "Error building downloadable metadata for order {}: {}",
-                order_id, e
+                order_id,
+                e
             );
             return Err(ErrorResponse::Status(Status::InternalServerError));
         }
@@ -181,7 +184,8 @@ pub async fn get_downloadable_books_for_order(
                     other => {
                         rocket::warn!(
                             "Unknown file format '{}' for edition {}, skipping",
-                            other, oi_row.edition_id
+                            other,
+                            oi_row.edition_id
                         );
                         continue; // skip unknown formats
                     }
