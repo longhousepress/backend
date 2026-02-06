@@ -8,6 +8,7 @@ use rocket::{Request, State};
 use sha2::Sha256;
 use std::path::Path;
 use subtle::ConstantTimeEq;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 
 // HMAC-SHA256 produces 32-byte (256-bit) signatures
 const HMAC_SHA256_OUTPUT_SIZE: usize = 32;
@@ -136,9 +137,22 @@ pub struct DownloadResponder {
 impl<'r> Responder<'r, 'static> for DownloadResponder {
     fn respond_to(self, req: &'r Request<'_>) -> RespResult<'static> {
         let mut response = self.file.respond_to(req)?;
+        
+        // Use RFC 6266 format with percent-encoding for the filename* parameter
+        // This handles special characters, unicode, quotes, and other edge cases correctly
+        let encoded_filename = utf8_percent_encode(&self.filename, NON_ALPHANUMERIC).to_string();
+        
+        // Use both filename (ASCII fallback) and filename* (RFC 5987) for maximum compatibility
+        // The ASCII fallback replaces non-ASCII chars with underscores
+        let ascii_filename: String = self.filename
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+            .collect();
+        
         response.set_raw_header(
             "Content-Disposition",
-            format!("attachment; filename=\"{}\"", self.filename),
+            format!("attachment; filename=\"{}\"; filename*=UTF-8''{}",
+                    ascii_filename, encoded_filename),
         );
         Ok(response)
     }
