@@ -44,7 +44,7 @@ pub async fn send_purchase_email(
         .body(body)
         .context("failed to build email message")?;
 
-    // Resolve SMTP host to an IP address (prefer IPv4).
+    // Resolve SMTP host to an IP address (compatibility with iCloud emails).
     let addr = (config.smtp_host.as_str(), config.smtp_port)
         .to_socket_addrs()
         .context("DNS lookup failed")?
