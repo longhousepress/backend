@@ -1,8 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-
+use std::path::Path;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
-
 
 use crate::models::{Book, Edition};
 
@@ -197,6 +196,31 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
         .bind(r.id)
         .fetch_optional(db)
         .await?;
+
+        // Check that all backend files (types 1-4: epub, kepub, azw3, pdf) exist on disk
+        let backend_file_rows = sqlx::query!(
+            "SELECT files.file_path as \"file_path!: String\"
+             FROM files
+             INNER JOIN file_formats ff ON files.file_format_id = ff.id
+             WHERE files.edition_id = ? AND ff.id IN (1, 2, 3, 4)",
+            r.id
+        )
+        .fetch_all(db)
+        .await?;
+
+        // If any backend file doesn't exist on disk, skip this edition
+        let mut all_files_exist = true;
+        for file_row in backend_file_rows {
+            if !Path::new(&file_row.file_path).exists() {
+                all_files_exist = false;
+                break;
+            }
+        }
+
+        // Skip this edition if any backend files are missing
+        if !all_files_exist {
+            continue;
+        }
 
         // Build a minimal Edition from the selected columns to include in Book.editions
         let edition = Edition {
