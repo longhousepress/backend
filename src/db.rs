@@ -137,65 +137,22 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
             })
             .collect();
 
-        // Get translator if exists for this edition
-        let translator_name = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Translator'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
+        // Get all edition contributor roles in one query using the view
+        let contributor_roles = sqlx::query!(
+            "SELECT translator_name, cover_artist_name, illustrator_name, introduction_writer_name
+             FROM edition_contributor_roles
+             WHERE edition_id = ?",
+            r.id
         )
-        .bind(&r.language)
-        .bind(r.id)
         .fetch_optional(db)
         .await?;
 
-        // Get cover artist if exists for this edition
-        let cover_artist = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Cover Artist'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
-        )
-        .bind(&r.language)
-        .bind(r.id)
-        .fetch_optional(db)
-        .await?;
-
-        // Get illustrator if exists for this edition
-        let illustrator = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Illustrator'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
-        )
-        .bind(&r.language)
-        .bind(r.id)
-        .fetch_optional(db)
-        .await?;
-
-        // Get introduction writer if exists for this edition
-        let introduction_writer = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Introduction Writer'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
-        )
-        .bind(&r.language)
-        .bind(r.id)
-        .fetch_optional(db)
-        .await?;
+        let (translator_name, cover_artist, illustrator, introduction_writer) =
+            if let Some(roles) = contributor_roles {
+                (roles.translator_name, roles.cover_artist_name, roles.illustrator_name, roles.introduction_writer_name)
+            } else {
+                (None, None, None, None)
+            };
 
         // Check that all backend files (types 1-4: epub, kepub, azw3, pdf) exist on disk
         let backend_file_rows = sqlx::query!(
@@ -409,65 +366,22 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             })
             .collect();
 
-        // Get translator if exists for this edition
-        let translator_name = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Translator'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
+        // Get all edition contributor roles in one query using the view
+        let contributor_roles = sqlx::query!(
+            "SELECT translator_name, cover_artist_name, illustrator_name, introduction_writer_name
+             FROM edition_contributor_roles
+             WHERE edition_id = ?",
+            r.id
         )
-        .bind(&r.language)
-        .bind(r.id)
         .fetch_optional(db)
         .await?;
 
-        // Get cover artist if exists for this edition
-        let cover_artist = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Cover Artist'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
-        )
-        .bind(&r.language)
-        .bind(r.id)
-        .fetch_optional(db)
-        .await?;
-
-        // Get illustrator if exists for this edition
-        let illustrator = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Illustrator'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
-        )
-        .bind(&r.language)
-        .bind(r.id)
-        .fetch_optional(db)
-        .await?;
-
-        // Get introduction writer if exists for this edition
-        let introduction_writer = sqlx::query_scalar::<_, String>(
-            "SELECT pl.name
-             FROM edition_contributors ec
-             INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
-             INNER JOIN roles r ON ec.role_id = r.id AND r.name = 'Introduction Writer'
-             WHERE ec.edition_id = ?
-             ORDER BY ec.ordinal ASC NULLS LAST
-             LIMIT 1"
-        )
-        .bind(&r.language)
-        .bind(r.id)
-        .fetch_optional(db)
-        .await?;
+        let (translator_name, cover_artist, illustrator, introduction_writer) =
+            if let Some(roles) = contributor_roles {
+                (roles.translator_name, roles.cover_artist_name, roles.illustrator_name, roles.introduction_writer_name)
+            } else {
+                (None, None, None, None)
+            };
 
         // Fetch sample files for this edition
         let sample_rows = sqlx::query!(

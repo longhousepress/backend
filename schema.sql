@@ -273,3 +273,19 @@ FROM editions e
 JOIN books b ON e.book_id = b.id
 JOIN formats f ON e.format_id = f.id
 JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language;
+
+-- View: Edition contributors pivoted by role
+-- Consolidates translator, cover artist, illustrator, and introduction writer into one query
+CREATE VIEW IF NOT EXISTS edition_contributor_roles AS
+SELECT 
+    ec.edition_id,
+    MAX(CASE WHEN r.name = 'Translator' THEN pl.name END) as translator_name,
+    MAX(CASE WHEN r.name = 'Cover Artist' THEN pl.name END) as cover_artist_name,
+    MAX(CASE WHEN r.name = 'Illustrator' THEN pl.name END) as illustrator_name,
+    MAX(CASE WHEN r.name = 'Introduction Writer' THEN pl.name END) as introduction_writer_name
+FROM edition_contributors ec
+JOIN editions e ON e.id = ec.edition_id
+JOIN roles r ON ec.role_id = r.id
+JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = e.language
+WHERE r.name IN ('Translator', 'Cover Artist', 'Illustrator', 'Introduction Writer')
+GROUP BY ec.edition_id;
