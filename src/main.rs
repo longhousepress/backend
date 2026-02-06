@@ -7,7 +7,8 @@ mod email;
 mod models;
 mod stripe;
 
-use rocket_cors::{AllowedOrigins, CorsOptions};
+use rocket_cors::{AllowedOrigins, CorsOptions, AllowedHeaders, AllowedMethods};
+use rocket::http::Method;
 use std::collections::HashSet;
 use tera::Tera;
 
@@ -46,8 +47,19 @@ async fn rocket() -> _ {
 
     // Set CORS from config
     let allowed_origins = AllowedOrigins::some_exact(&config.allowed_origins);
+    let allowed_methods: AllowedMethods = vec![
+        Method::Get,
+        Method::Post,
+    ]
+    .into_iter()
+    .map(From::from)
+    .collect();
+
     let cors = CorsOptions {
         allowed_origins,
+        allowed_methods,
+        allowed_headers: AllowedHeaders::all(),
+        allow_credentials: true,
         expose_headers: vec!["X-Order-Id".into()]
             .into_iter()
             .collect::<HashSet<String>>(),
