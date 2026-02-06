@@ -114,17 +114,20 @@ pub async fn verify_order_endpoint(
 /// Retrieve downloadable books for a given order.
 /// Queries order_items directly to get all editions purchased, then builds
 /// the downloadable metadata with minted tokens for each file.
+/// Groups editions by book_id so each book appears once with all its purchased editions.
 pub async fn get_downloadable_books_for_order(
     config: &Config,
     db: &SqlitePool,
     order_id: i64,
 ) -> AnyhowResult<Vec<Book>> {
     // Query all editions for this order with book and author info
+    // Using GROUP_CONCAT to handle multiple authors per book
     let edition_rows = sqlx::query!(
         "SELECT
-            e.id as \"id!: i64\",
+            e.id as \"edition_id!: i64\",
+            b.id as \"book_id!: i64\",
             bl.title as \"title!: String\",
-            pl.name as \"author_name!: String\",
+            GROUP_CONCAT(pl.name, ', ') as \"author_names!: String\",
             e.cover_filepath as \"cover!: String\",
             f.name as \"format!: String\",
             e.language as \"language!: String\",
@@ -134,11 +137,12 @@ pub async fn get_downloadable_books_for_order(
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
          INNER JOIN formats f ON e.format_id = f.id
-         INNER JOIN book_contributors bc ON bc.book_id = b.id
-         INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
-         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
+         LEFT JOIN book_contributors bc ON bc.book_id = b.id
+         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
+         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE oi.order_id = ?
-         ORDER BY bc.ordinal ASC NULLS LAST",
+         GROUP BY e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug
+         ORDER BY b.id, e.id",
         order_id
     )
     .fetch_all(db)
@@ -148,7 +152,9 @@ pub async fn get_downloadable_books_for_order(
         return Ok(Vec::new());
     }
 
-    let mut books: Vec<Book> = Vec::with_capacity(edition_rows.len());
+    // Group editions by book_id
+    use std::collections::HashMap;
+    let mut books_map: HashMap<i64, Book> = HashMap::new();
 
     for er in edition_rows {
         // Fetch files for this edition
@@ -157,7 +163,7 @@ pub async fn get_downloadable_books_for_order(
              FROM files
              INNER JOIN file_formats ff ON files.file_format_id = ff.id
              WHERE files.edition_id = ? AND ff.name != 'sample'",
-            er.id
+            er.edition_id
         )
         .fetch_all(db)
         .await?;
@@ -172,7 +178,7 @@ pub async fn get_downloadable_books_for_order(
                 other => {
                     rocket::warn!(
                         "Unknown file format '{}' for edition {}, skipping",
-                        other, er.id
+                        other, er.edition_id
                     );
                     continue; // skip unknown formats
                 }
@@ -189,16 +195,16 @@ pub async fn get_downloadable_books_for_order(
 
         // Build a minimal Edition
         let edition = Edition {
-            id: er.id,
-            title: er.title,
-            author_name: er.author_name,
+            id: er.edition_id,
+            title: er.title.clone(),
+            author_name: er.author_names.clone(),
             author_bio: None,
             prices: Vec::new(),
             cover: er.cover,
             description: None,
             categories: Vec::new(),
-            format: er.format,
-            language: Some(er.language),
+            format: er.format.clone(),
+            language: Some(er.language.clone()),
             page_count: None,
             translator_name: None,
             illustrator: None,
@@ -214,21 +220,27 @@ pub async fn get_downloadable_books_for_order(
             samples: None,
         };
 
-        // Build a Book containing this edition
-        let book = Book {
-            id: er.id,
-            title: edition.title.clone(),
-            subtitle: None,
-            author: edition.author_name.clone(),
-            book_slug: er.slug,
-            original_language: String::from("eng"), // default, not queried in this context
-            original_publication_year: None,
-            contributors: Vec::new(),
-            editions: vec![edition],
-        };
-
-        books.push(book);
+        // Add edition to the appropriate book, or create a new book entry
+        books_map
+            .entry(er.book_id)
+            .or_insert_with(|| Book {
+                id: er.book_id,
+                title: er.title.clone(),
+                subtitle: None,
+                author: er.author_names.clone(),
+                book_slug: er.slug.clone(),
+                original_language: String::from("eng"), // default, not queried in this context
+                original_publication_year: None,
+                contributors: Vec::new(),
+                editions: Vec::new(),
+            })
+            .editions
+            .push(edition);
     }
+
+    // Convert HashMap to Vec and sort by book_id for consistent ordering
+    let mut books: Vec<Book> = books_map.into_iter().map(|(_, book)| book).collect();
+    books.sort_by_key(|b| b.id);
 
     Ok(books)
 }
