@@ -22,13 +22,13 @@ pub async fn load_db() -> Result<SqlitePool> {
 }
 
 pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
-    // Get ALL editions of ALL books
+    // Get ALL editions of ALL books, using GROUP_CONCAT to handle multiple authors
     let rows = sqlx::query!(
         "SELECT
             e.id as \"id!: i64\",
             bl.title as \"title!: String\",
             bl.subtitle as \"subtitle: Option<String>\",
-            pl.name as \"author!: String\",
+            GROUP_CONCAT(pl.name, ', ') as \"author!: String\",
             e.cover_filepath as \"cover!: String\",
             e.cover_name as \"cover_name: Option<String>\",
             b.slug as \"book_slug!: String\",
@@ -42,56 +42,21 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
          INNER JOIN formats f ON e.format_id = f.id
-         INNER JOIN book_contributors bc ON bc.book_id = b.id
-         INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
-         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
+         LEFT JOIN book_contributors bc ON bc.book_id = b.id
+         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
+         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE e.listed = 1
-         ORDER BY b.id, e.id, bc.ordinal ASC NULLS LAST"
+         GROUP BY e.id, bl.title, bl.subtitle, e.cover_filepath, e.cover_name, b.slug, b.id, b.original_language, b.original_publication_year, f.name, e.language, e.edition_notes
+         ORDER BY b.id, e.id"
     )
     .fetch_all(db)
     .await?;
 
-    let mut books: Vec<Book> = Vec::new();
+    // Group editions by book_id
+    use std::collections::HashMap;
+    let mut books_map: HashMap<i64, Book> = HashMap::new();
 
     for r in rows {
-        // Fetch categories for this book
-        let cat_rows = sqlx::query!(
-            "SELECT c.name
-             FROM categories c
-             INNER JOIN book_categories bc ON c.id = bc.category_id
-             WHERE bc.book_id = ?",
-            r.book_id
-        )
-        .fetch_all(db)
-        .await?;
-
-        let categories: Vec<String> = cat_rows.into_iter().map(|c| c.name).collect();
-
-        // Fetch all book-level contributors
-        let book_contributor_rows = sqlx::query!(
-            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
-             FROM book_contributors bc
-             INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = ?
-             INNER JOIN roles r ON bc.role_id = r.id
-             INNER JOIN persons p ON bc.person_id = p.id
-             WHERE bc.book_id = ?
-             ORDER BY bc.ordinal ASC NULLS LAST",
-            r.language,
-            r.book_id
-        )
-        .fetch_all(db)
-        .await?;
-
-        let book_contributors: Vec<crate::models::Contributor> = book_contributor_rows
-            .into_iter()
-            .map(|c| crate::models::Contributor {
-                name: c.name,
-                role: c.role,
-                bio: c.bio,
-                birth_year: c.birth_year,
-                death_year: c.death_year,
-            })
-            .collect();
 
         // Fetch all edition-level contributors
         let edition_contributor_rows = sqlx::query!(
@@ -190,7 +155,7 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
             cover_name: r.cover_name.flatten(),
             cover_artist,
             description: None,
-            categories,
+            categories: Vec::new(), // Will be populated per book after grouping
             format: r.format.clone(),
             language: Some(r.language.clone()),
             page_count: None,
@@ -206,18 +171,77 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
             samples: None,
         };
 
-        books.push(Book {
-            id: r.id,
-            title: edition.title.clone(),
-            subtitle: r.subtitle.flatten(),
-            author: edition.author_name.clone(),
-            book_slug: r.book_slug,
-            original_language: r.original_language,
-            original_publication_year: r.original_publication_year.flatten(),
-            contributors: book_contributors,
-            editions: vec![edition],
+        // Add edition to the appropriate book, or create a new book entry
+        let book = books_map.entry(r.book_id).or_insert_with(|| {
+            Book {
+                id: r.book_id,
+                title: r.title.clone(),
+                subtitle: r.subtitle.clone().flatten(),
+                author: r.author.clone(),
+                book_slug: r.book_slug.clone(),
+                original_language: r.original_language.clone(),
+                original_publication_year: r.original_publication_year.flatten(),
+                contributors: Vec::new(), // Will be populated below
+                editions: Vec::new(),
+            }
         });
+
+        book.editions.push(edition);
     }
+
+    // Now fetch categories and contributors for each unique book
+    for (book_id, book) in books_map.iter_mut() {
+        // Use the language of the first edition for fetching contributors
+        let language = book.editions[0].language.clone().unwrap_or_else(|| "eng".to_string());
+        
+        // Fetch categories for this book
+        let cat_rows = sqlx::query!(
+            "SELECT c.name
+             FROM categories c
+             INNER JOIN book_categories bc ON c.id = bc.category_id
+             WHERE bc.book_id = ?",
+            book_id
+        )
+        .fetch_all(db)
+        .await?;
+
+        let categories: Vec<String> = cat_rows.into_iter().map(|c| c.name).collect();
+
+        // Fetch all book-level contributors
+        let book_contributor_rows = sqlx::query!(
+            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
+             FROM book_contributors bc
+             INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = ?
+             INNER JOIN roles r ON bc.role_id = r.id
+             INNER JOIN persons p ON bc.person_id = p.id
+             WHERE bc.book_id = ?
+             ORDER BY bc.ordinal ASC NULLS LAST",
+            language,
+            book_id
+        )
+        .fetch_all(db)
+        .await?;
+
+        book.contributors = book_contributor_rows
+            .into_iter()
+            .map(|c| crate::models::Contributor {
+                name: c.name,
+                role: c.role,
+                bio: c.bio,
+                birth_year: c.birth_year,
+                death_year: c.death_year,
+            })
+            .collect();
+
+        // Add categories to all editions of this book
+        for edition in &mut book.editions {
+            edition.categories = categories.clone();
+        }
+    }
+
+    // Convert HashMap to Vec and sort by book_id for consistent ordering
+    let mut books: Vec<Book> = books_map.into_iter().map(|(_, book)| book).collect();
+    books.sort_by_key(|b| b.id);
 
     Ok(books)
 }
@@ -225,7 +249,7 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
 pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option<Book>> {
     // First, verify the book exists and get basic info
     let book_row = sqlx::query!(
-        "SELECT id, slug, original_language, original_publication_year FROM books WHERE slug = ?",
+        "SELECT id as \"id!: i64\", slug, original_language as \"original_language!: String\", original_publication_year FROM books WHERE slug = ?",
         book_slug
     )
     .fetch_optional(db)
@@ -239,7 +263,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     let book_original_language = book.original_language;
     let book_original_publication_year = book.original_publication_year;
 
-    // Get all editions for this book with localized content
+    // Get all editions for this book with localized content, using GROUP_CONCAT for multiple authors
     let edition_rows = sqlx::query!(
         "SELECT
             e.id as \"id!: i64\",
@@ -255,17 +279,23 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             bl.subtitle as \"subtitle: Option<String>\",
             bl.description as \"description: Option<String>\",
             f.name as \"format!: String\",
-            pl.name as \"author_name!: String\",
-            pl.bio as \"author_bio: Option<String>\"
+            GROUP_CONCAT(pl.name, ', ') as \"author_name!: String\",
+            (SELECT pl2.bio FROM book_contributors bc2
+             INNER JOIN person_localizations pl2 ON pl2.person_id = bc2.person_id AND pl2.language = e.language
+             INNER JOIN roles r2 ON bc2.role_id = r2.id AND r2.name = 'Author'
+             WHERE bc2.book_id = b.id
+             ORDER BY bc2.ordinal ASC NULLS LAST
+             LIMIT 1) as \"author_bio: Option<String>\"
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN formats f ON e.format_id = f.id
          INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
-         INNER JOIN book_contributors bc ON bc.book_id = b.id
-         INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
-         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
+         LEFT JOIN book_contributors bc ON bc.book_id = b.id
+         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
+         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE b.id = ? AND e.listed = 1
-         ORDER BY bc.ordinal ASC NULLS LAST",
+         GROUP BY e.id, e.cover_filepath, e.cover_name, e.language, e.page_count, e.publication_date, e.isbn, e.edition_name, e.edition_notes, bl.title, bl.subtitle, bl.description, f.name, b.id
+         ORDER BY e.id",
         book_id
     )
     .fetch_all(db)
@@ -439,7 +469,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
     let rep = &editions[0];
 
     Ok(Some(Book {
-        id: rep.id,
+        id: book_id,
         title: rep.title.clone(),
         subtitle: book_subtitle,
         author: rep.author_name.clone(),
