@@ -6,6 +6,7 @@ mod download;
 mod email;
 mod models;
 mod stripe;
+mod tokens;
 
 use rocket_cors::{AllowedOrigins, CorsOptions, AllowedHeaders, AllowedMethods};
 use rocket::http::Method;

@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            e.id as \"id!: i64\",\n            bl.title as \"title!: String\",\n            pl.name as \"author_name!: String\",\n            e.cover_filepath as \"cover!: String\",\n            f.name as \"format!: String\",\n            e.language as \"language!: String\",\n            b.slug as \"slug!: String\"\n         FROM order_items oi\n         INNER JOIN editions e ON oi.edition_id = e.id\n         INNER JOIN books b ON e.book_id = b.id\n         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language\n         INNER JOIN formats f ON e.format_id = f.id\n         INNER JOIN book_contributors bc ON bc.book_id = b.id\n         INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'\n         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language\n         WHERE oi.order_id = ?\n         ORDER BY bc.ordinal ASC NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "author_name!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "cover!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "format!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "language!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug!: String",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "89036676a353f72a61f2a6d178ac6fe95ca1344892b703828bffa1df0663e974"
+}

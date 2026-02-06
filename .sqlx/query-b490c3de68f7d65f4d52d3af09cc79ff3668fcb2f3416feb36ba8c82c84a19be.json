@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "price",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b490c3de68f7d65f4d52d3af09cc79ff3668fcb2f3416feb36ba8c82c84a19be"
+}

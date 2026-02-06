@@ -1,16 +1,14 @@
 use crate::config::Config;
 use crate::models::{Book, Edition, File, FileFormat};
+use crate::tokens::mint;
 use anyhow::Result as AnyhowResult;
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use hmac::{Hmac, Mac};
 use rocket::Request;
 use rocket::State;
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
 use rocket::serde::json::Json;
-use serde::Serialize;
-use sha2::Sha256;
 use sqlx::SqlitePool;
+use serde::Serialize;
 
 /// Small responder type to send an HTTP status and optionally include the order id
 /// in a custom header (used when returning 410 Gone).
@@ -233,28 +231,6 @@ pub async fn get_downloadable_books_for_order(
     }
 
     Ok(books)
-}
-
-// Mint a download token with version byte for future compatibility
-pub fn mint(filepath: &str, token_key: &str) -> String {
-    let mut payload = Vec::new();
-
-    // 1) version byte (1 byte) - for future version checking
-    payload.push(1u8);
-
-    // 2) filepath length (2 bytes) + filepath
-    let path_bytes = filepath.as_bytes();
-    payload.extend_from_slice(&(path_bytes.len() as u16).to_be_bytes());
-    payload.extend_from_slice(path_bytes);
-
-    // 3) sign with HMAC-SHA256
-    let mut mac = Hmac::<Sha256>::new_from_slice(token_key.as_bytes())
-        .expect("HMAC can take key of any size");
-    mac.update(&payload);
-    let sig = mac.finalize().into_bytes();
-    payload.extend_from_slice(&sig);
-
-    URL_SAFE_NO_PAD.encode(&payload)
 }
 
 #[derive(Serialize)]

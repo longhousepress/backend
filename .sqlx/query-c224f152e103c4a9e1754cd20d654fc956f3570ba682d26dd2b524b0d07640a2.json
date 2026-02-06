@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"\n             FROM files\n             INNER JOIN file_formats ff ON files.file_format_id = ff.id\n             WHERE files.edition_id = ?",
+  "query": "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"\n             FROM files\n             INNER JOIN file_formats ff ON files.file_format_id = ff.id\n             WHERE files.edition_id = ? AND ff.name != 'sample'",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "523637df07449016076f2ebb53d6e8519450582ba451dabe7eaf9ff1bd45946a"
+  "hash": "c224f152e103c4a9e1754cd20d654fc956f3570ba682d26dd2b524b0d07640a2"
 }

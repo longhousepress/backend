@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.name\n         FROM categories c\n         INNER JOIN book_categories bc ON c.id = bc.category_id\n         WHERE bc.book_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "507b8a26f2736a2dc1e6f698ef7957914af4d6fe21948f92eac56384c184d1fc"
+}

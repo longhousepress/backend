@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT files.file_path as \"file_path!: String\"\n             FROM files\n             INNER JOIN file_formats ff ON files.file_format_id = ff.id\n             WHERE files.edition_id = ? AND ff.name = 'sample'",
+  "describe": {
+    "columns": [
+      {
+        "name": "file_path!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cdc3c189a5192f903423e44c6470b1a5ec90cbf3b10f12bbead533002d6e2bc9"
+}
