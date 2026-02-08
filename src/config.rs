@@ -1,13 +1,14 @@
-use anyhow::{Result, anyhow};
-use std::env;
+use rocket::serde::{Deserialize, Serialize};
 
 // Application configuration loaded from environment variables.
 // All fields are required and the application will panic at startup if any are missing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(crate = "rocket::serde")]
 pub struct Config {
     pub token_key: String,
     pub stripe_api_key: String,
     pub stripe_webhook_secret: String,
+    #[serde(deserialize_with = "deserialize_comma_separated")]
     pub allowed_origins: Vec<String>,
     pub stripe_success_url: String,
     pub stripe_cancel_url: String,
@@ -20,40 +21,36 @@ pub struct Config {
     pub base_url: String,
 }
 
-impl Config {
-    // Load configuration from environment variables.
-    // Returns Ok(Config) or an error describing the missing/invalid variable.
-    pub fn from_env() -> Result<Self> {
-        let allowed_origins_str = Self::get_required("ALLOWED_ORIGINS")?;
-        let allowed_origins = allowed_origins_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+// Custom deserializer for comma-separated strings
+fn deserialize_comma_separated<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: rocket::serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let origins = s
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    Ok(origins)
+}
 
-        let smtp_port_str = Self::get_required("SMTP_PORT")?;
-        let smtp_port = smtp_port_str
-            .parse::<u16>()
-            .map_err(|_| anyhow!("SMTP_PORT must be a valid port number: {}", smtp_port_str))?;
-
-        Ok(Self {
-            token_key: Self::get_required("TOKEN_KEY")?,
-            stripe_api_key: Self::get_required("STRIPE_API_KEY")?,
-            stripe_webhook_secret: Self::get_required("STRIPE_WEBHOOK_SECRET")?,
-            allowed_origins,
-            stripe_success_url: Self::get_required("STRIPE_SUCCESS_URL")?,
-            stripe_cancel_url: Self::get_required("STRIPE_CANCEL_URL")?,
-            smtp_host: Self::get_required("SMTP_HOST")?,
-            smtp_port,
-            smtp_username: Self::get_required("SMTP_USERNAME")?,
-            smtp_password: Self::get_required("SMTP_PASSWORD")?,
-            smtp_from_email: Self::get_required("SMTP_FROM_EMAIL")?,
-            smtp_from_name: Self::get_required("SMTP_FROM_NAME")?,
-            base_url: Self::get_required("BASE_URL")?,
-        })
-    }
-
-    fn get_required(key: &str) -> Result<String> {
-        env::var(key).map_err(|_| anyhow!("Missing required environment variable: {}", key))
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            token_key: String::new(),
+            stripe_api_key: String::new(),
+            stripe_webhook_secret: String::new(),
+            allowed_origins: vec![],
+            stripe_success_url: String::new(),
+            stripe_cancel_url: String::new(),
+            smtp_host: String::new(),
+            smtp_port: 587,
+            smtp_username: String::new(),
+            smtp_password: String::new(),
+            smtp_from_email: String::new(),
+            smtp_from_name: String::new(),
+            base_url: String::new(),
+        }
     }
 }

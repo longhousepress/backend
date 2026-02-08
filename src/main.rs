@@ -8,7 +8,11 @@ mod models;
 mod stripe;
 mod tokens;
 
+use figment::providers::{Env, Format, Serialized, Toml};
+use figment::{Figment, Profile};
+use rocket::fairing::AdHoc;
 use rocket::http::Method;
+use rocket::{Build, Rocket};
 use rocket_cors::{AllowedHeaders, AllowedMethods, AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
 use tera::Tera;
@@ -18,20 +22,11 @@ use crate::db::load_db;
 
 #[macro_use]
 extern crate rocket;
+
 #[launch]
 async fn rocket() -> _ {
     // Load .env and crash immediately if it's not there
     dotenvy::dotenv().expect("Failed to load .env");
-
-    // Load config from environment and crash if any required vars are missing or invalid
-    let config = match Config::from_env() {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            // Rocket logging isn't initialized yet; print to stderr and exit non-zero
-            eprintln!("Failed to load configuration: {}", e);
-            std::process::exit(1);
-        }
-    };
 
     rocket::info!("Dragon backend starting up");
 
@@ -42,7 +37,37 @@ async fn rocket() -> _ {
     // Initialize Tera templates once at startup and manage it in Rocket state.
     let tera = Tera::new("templates/**/*.html.tera").expect("Failed to initialize Tera templates");
 
-    // Set CORS from config
+    // Configure Figment to read from Rocket.toml and environment variables
+    let figment = Figment::from(rocket::Config::default())
+        .merge(Toml::file("Rocket.toml").nested())
+        .merge(Serialized::defaults(Config::default()))
+        .merge(Env::raw())
+        .select(Profile::from_env_or("ROCKET_PROFILE", "default"));
+
+    rocket::custom(figment)
+        .manage(tera)
+        .manage(db)
+        .attach(AdHoc::config::<Config>())
+        .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
+        .mount(
+            "/",
+            routes![
+                stripe::verify_order::verify_order_endpoint,
+                stripe::checkout::checkout,
+                book_detail::book_detail,
+                catalog::books,
+                download::download,
+                stripe::webhook::stripe_webhook
+            ],
+        )
+}
+
+// Fairing to set up CORS based on the extracted config
+async fn setup_cors(rocket: Rocket<Build>) -> Rocket<Build> {
+    let config = rocket
+        .state::<Config>()
+        .expect("Config should be managed at this point");
+
     let allowed_origins = AllowedOrigins::some_exact(&config.allowed_origins);
     let allowed_methods: AllowedMethods = vec![Method::Get, Method::Post]
         .into_iter()
@@ -64,21 +89,5 @@ async fn rocket() -> _ {
 
     rocket::info!("CORS configured for origins: {:?}", config.allowed_origins);
 
-    // And launch
-    rocket::build()
-        .manage(tera)
-        .manage(config)
-        .manage(db)
-        .attach(cors)
-        .mount(
-            "/",
-            routes![
-                stripe::verify_order::verify_order_endpoint,
-                stripe::checkout::checkout,
-                book_detail::book_detail,
-                catalog::books,
-                download::download,
-                stripe::webhook::stripe_webhook
-            ],
-        )
+    rocket.attach(cors)
 }

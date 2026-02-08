@@ -152,6 +152,7 @@ dependencies = [
  "base64",
  "chrono",
  "dotenvy",
+ "figment",
  "hex",
  "hmac",
  "lettre",
