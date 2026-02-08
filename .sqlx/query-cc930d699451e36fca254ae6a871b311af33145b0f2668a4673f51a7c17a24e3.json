@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT translator_name, cover_artist_name, illustrator_name, introduction_writer_name\n             FROM edition_contributor_roles\n             WHERE edition_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "translator_name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "cover_artist_name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "illustrator_name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "introduction_writer_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "cc930d699451e36fca254ae6a871b311af33145b0f2668a4673f51a7c17a24e3"
+}
