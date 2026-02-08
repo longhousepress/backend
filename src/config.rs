@@ -1,8 +1,7 @@
-use rocket::serde::{Deserialize, Serialize};
+use rocket::serde::Deserialize;
 
-// Application configuration loaded from environment variables.
-// All fields are required and the application will panic at startup if any are missing.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+// All fields are required
+#[derive(Debug, Clone, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct Config {
     pub token_key: String,
@@ -33,24 +32,4 @@ where
         .filter(|s| !s.is_empty())
         .collect();
     Ok(origins)
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            token_key: String::new(),
-            stripe_api_key: String::new(),
-            stripe_webhook_secret: String::new(),
-            allowed_origins: vec![],
-            stripe_success_url: String::new(),
-            stripe_cancel_url: String::new(),
-            smtp_host: String::new(),
-            smtp_port: 587,
-            smtp_username: String::new(),
-            smtp_password: String::new(),
-            smtp_from_email: String::new(),
-            smtp_from_name: String::new(),
-            base_url: String::new(),
-        }
-    }
 }

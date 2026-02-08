@@ -8,7 +8,7 @@ mod models;
 mod stripe;
 mod tokens;
 
-use figment::providers::{Env, Format, Serialized, Toml};
+use figment::providers::{Env, Toml, Format};
 use figment::{Figment, Profile};
 use rocket::fairing::AdHoc;
 use rocket::http::Method;
@@ -40,7 +40,6 @@ async fn rocket() -> _ {
     // Configure Figment to read from Rocket.toml and environment variables
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
-        .merge(Serialized::defaults(Config::default()))
         .merge(Env::raw())
         .select(Profile::from_env_or("ROCKET_PROFILE", "default"));
 
