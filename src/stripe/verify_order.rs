@@ -83,7 +83,7 @@ pub async fn verify_order_endpoint(
         let now = chrono::Utc::now();
         let elapsed = now.signed_duration_since(paid_at);
 
-        if elapsed > chrono::Duration::minutes(15) {
+        if elapsed > chrono::Duration::minutes(90) {
             // Return 410 Gone with X-Order-Id header
             return Err(ErrorResponse::WithOrder {
                 status: Status::Gone,
