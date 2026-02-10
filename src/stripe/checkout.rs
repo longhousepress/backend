@@ -35,6 +35,7 @@ pub async fn create_checkout_session(
         success_url: config.stripe_success_url.clone(),
         cancel_url: config.stripe_cancel_url.clone(),
         line_items: create_checkout_body(db.inner(), req).await?,
+        customer_email: Some(req.email.clone()),
         client_reference_id: None,
         payment_intent_data: None,
     };
@@ -142,6 +143,8 @@ struct StripeCheckout {
     success_url: String,
     cancel_url: String,
     line_items: Vec<StripeLineItem>,
+    // Optional customer_email to pre-fill the email field in Stripe checkout
+    customer_email: Option<String>,
     // Optional client_reference_id so we can attach our internal order_id to the Stripe session
     client_reference_id: Option<String>,
     // Optional payment_intent_data allows attaching metadata to the PaymentIntent created by Stripe
@@ -186,6 +189,7 @@ pub enum CheckoutMode {
 // What the front end POSTs to us
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct CheckoutRequest {
+    pub email: String,
     pub items: Vec<CheckoutItem>,
 }
 
@@ -240,9 +244,10 @@ impl CheckoutRequest {
 
         // Insert the order (paid is NULL for pending) inside the transaction
         let res = sqlx::query(
-            "INSERT INTO orders (stripe_session_id, paid, total_amount, currency) VALUES (?, NULL, ?, ?)",
+            "INSERT INTO orders (stripe_session_id, email, paid, total_amount, currency) VALUES (?, ?, NULL, ?, ?)",
         )
         .bind(stripe_session_id)
+        .bind(&self.email)
         .bind(total_amount)
         .bind(currency)
         .execute(&mut *tx)
