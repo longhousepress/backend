@@ -72,28 +72,48 @@ pub async fn stripe_webhook(
             payment_status
         );
 
-        // Look up the order by stripe_session_id
-        let order_id =
-            sqlx::query_scalar::<_, i64>("SELECT id FROM orders WHERE stripe_session_id = ?")
-                .bind(&session_id)
-                .fetch_optional(db.inner())
-                .await
-                .map_err(|e| {
-                    rocket::error!(
-                        "Database error looking up order for session {}: {:?}",
-                        session_id,
-                        e
-                    );
-                    rocket::http::Status::InternalServerError
-                })?
-                .ok_or_else(|| {
-                    rocket::warn!("Webhook received for unknown session {}", session_id);
-                    rocket::http::Status::InternalServerError
-                })?;
+        // Look up the order by stripe_session_id and verify email matches
+        let order = sqlx::query!(
+            "SELECT id, email FROM orders WHERE stripe_session_id = ?",
+            session_id
+        )
+        .fetch_optional(db.inner())
+        .await
+        .map_err(|e| {
+            rocket::error!(
+                "Database error looking up order for session {}: {:?}",
+                session_id,
+                e
+            );
+            rocket::http::Status::InternalServerError
+        })?
+        .ok_or_else(|| {
+            rocket::warn!("Webhook received for unknown session {}", session_id);
+            rocket::http::Status::InternalServerError
+        })?;
+
+        let order_id = order.id.ok_or_else(|| {
+            rocket::error!("Order ID is null for session {}", session_id);
+            rocket::http::Status::InternalServerError
+        })?;
+
+        // Verify email from Stripe matches the email stored in our order
+        let stored_email = order.email.unwrap_or_default();
+        if customer_email.to_lowercase() != stored_email.to_lowercase() {
+            rocket::warn!(
+                "Email mismatch for order {}: Stripe says '{}' but order has '{}'",
+                order_id,
+                customer_email,
+                stored_email
+            );
+            // Use the email from our database (more trustworthy as it was user-provided)
+            // but continue processing - this is just a warning
+        }
 
         if payment_status == "paid" {
             rocket::info!("Marking order {} as paid", order_id);
-            mark_order_paid(db.inner(), order_id, &customer_email)
+            // Use the stored email from our database for consistency
+            mark_order_paid(db.inner(), order_id, &stored_email)
                 .await
                 .map_err(|e| {
                     rocket::error!("Error marking order {} paid: {:?}", order_id, e);
@@ -112,7 +132,7 @@ pub async fn stripe_webhook(
                     match send_purchase_email(
                         config.inner(),
                         tera.inner(),
-                        &customer_email,
+                        &stored_email,
                         order_id,
                         &books,
                     )
@@ -122,7 +142,7 @@ pub async fn stripe_webhook(
                             rocket::info!(
                                 "Email for order #{} sent successfully to {}",
                                 order_id,
-                                customer_email
+                                stored_email
                             );
                         }
                         Err(e) => {

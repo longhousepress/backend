@@ -45,6 +45,15 @@ async fn rocket() -> _ {
         .manage(tera)
         .manage(db)
         .attach(AdHoc::config::<Config>())
+        .attach(AdHoc::on_ignite("Validate Config", |rocket| async {
+            let config = rocket.state::<Config>().expect("Config not managed");
+            // Validate token_key is at least 32 bytes for cryptographic strength
+            if config.token_key.len() < 32 {
+                panic!("token_key must be at least 32 bytes long for security. Current length: {}", config.token_key.len());
+            }
+            rocket::info!("Configuration validated successfully");
+            rocket
+        }))
         .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
         .mount(
             "/",

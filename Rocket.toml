@@ -1,3 +1,7 @@
 [default]
 cli_colors = false
 address="0.0.0.0"
+
+[default.limits]
+json = "1 MiB"
+forms = "128 KiB"

@@ -43,7 +43,13 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
         return Err(anyhow::anyhow!("Checkout must contain at least one item"));
     }
     
+    // Limit total number of line items (prevent DoS)
+    if req.items.len() > 50 {
+        return Err(anyhow::anyhow!("Checkout cannot contain more than 50 items"));
+    }
+    
     // Validate each item
+    let currency_str = req.currency.as_str();
     for item in &req.items {
         // Validate quantity is not zero and not too high
         if item.quantity == 0 {
@@ -53,19 +59,29 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
             return Err(anyhow::anyhow!("Item quantity cannot exceed 100"));
         }
         
-        // Check that the edition exists and is listed
-        let listed = sqlx::query_scalar::<_, i64>(
-            "SELECT listed FROM editions WHERE id = ?"
+        // Check that the edition exists, is listed, and has a price for the requested currency
+        let result = sqlx::query!(
+            "SELECT e.listed, ep.price 
+             FROM editions e
+             LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?
+             WHERE e.id = ?",
+            currency_str,
+            item.edition_id
         )
-        .bind(item.edition_id)
         .fetch_optional(db)
         .await?;
         
-        match listed {
+        match result {
             None => return Err(anyhow::anyhow!("Edition {} not found", item.edition_id)),
-            Some(0) => return Err(anyhow::anyhow!("Edition {} is not available for purchase", item.edition_id)),
-            Some(1) => {}, // Valid
-            Some(_) => return Err(anyhow::anyhow!("Edition {} has invalid listing status", item.edition_id)),
+            Some(row) => {
+                if row.listed != Some(1) {
+                    return Err(anyhow::anyhow!("Edition {} is not available for purchase", item.edition_id));
+                }
+                if row.price.is_none() {
+                    return Err(anyhow::anyhow!("Edition {} does not have a price for currency {}", 
+                        item.edition_id, currency_str));
+                }
+            }
         }
     }
     
@@ -147,13 +163,22 @@ pub async fn create_checkout_session(
 async fn expire_stripe_session(config: &Config, id: &str) -> Result<()> {
     // Send to Stripe
     let client = reqwest::Client::new();
-    client
+    let response = client
         .post(format!(
             "https://api.stripe.com/v1/checkout/sessions/{id}/expire"
         ))
         .header("Authorization", format!("Bearer {}", config.stripe_api_key))
         .send()
         .await?;
+
+    // Check response status
+    if response.status().is_client_error() || response.status().is_server_error() {
+        return Err(anyhow::anyhow!(
+            "Failed to expire Stripe session {}: status {}",
+            id,
+            response.status()
+        ));
+    }
 
     Ok(())
 }

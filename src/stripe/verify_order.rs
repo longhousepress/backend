@@ -67,7 +67,7 @@ pub async fn verify_order_endpoint(
         return Err(ErrorResponse::Status(Status::PaymentRequired));
     }
 
-    // Check if the order was paid more than 15 minutes ago
+    // Check if the order was paid more than 90 minutes ago
     if let Some(paid_at_str) = row.paid_at {
         let paid_at = paid_at_str
             .parse::<chrono::DateTime<chrono::Utc>>()
