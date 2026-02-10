@@ -2,69 +2,198 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 700px; margin: 0 auto; padding: 20px; }
-        h1 { color: #2c3e50; margin-bottom: 0.2em; }
-        h2 { color: #34495e; margin-top: 1.2em; }
-        .order-ref { color: #7f8c8d; font-size: 14px; margin: 8px 0 20px 0; }
-        .book { margin-bottom: 24px; padding: 14px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e6e9ee; }
-        .book-title { font-weight: 600; font-size: 18px; color: #2c3e50; }
-        .book-author { color: #7f8c8d; font-style: italic; margin-bottom: 8px; }
-        .download-links { margin-top: 12px; }
-        .download-link { display: inline-block; margin: 6px 8px 6px 0; padding: 8px 14px; background-color: #3498db; color: white; text-decoration: none; border-radius: 4px; font-weight: 600; }
-        .download-link:hover { background-color: #2980b9; }
-        .note { margin-top: 18px; font-size: 13px; color: #666; }
-        .footer { margin-top: 30px; padding-top: 18px; border-top: 1px solid #e6e9ee; font-size: 12px; color: #7f8c8d; }
-        .small { font-size: 12px; color: #9aa3ad; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 32px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 24px;
+            border-bottom: 2px solid #e5e7eb;
+            margin-bottom: 24px;
+        }
+        h1 {
+            color: #111827;
+            margin: 0 0 8px 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .order-ref {
+            color: #6b7280;
+            font-size: 14px;
+            margin: 0;
+        }
+        .intro {
+            margin-bottom: 28px;
+            color: #374151;
+        }
+        h2 {
+            color: #111827;
+            font-size: 18px;
+            font-weight: 600;
+            margin: 28px 0 16px 0;
+        }
+        .book {
+            margin-bottom: 20px;
+            padding: 20px;
+            background-color: #f9fafb;
+            border-radius: 6px;
+            border-left: 4px solid #3b82f6;
+        }
+        .book-title {
+            font-weight: 600;
+            font-size: 17px;
+            color: #111827;
+            margin-bottom: 4px;
+        }
+        .book-author {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .download-section {
+            margin-top: 16px;
+        }
+        .download-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .download-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .download-link {
+            display: inline-block;
+            padding: 10px 18px;
+            background-color: #3b82f6;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        .download-link:hover {
+            background-color: #2563eb;
+        }
+        .info-box {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 16px;
+            margin: 24px 0;
+            border-radius: 4px;
+        }
+        .info-box p {
+            margin: 0;
+            color: #92400e;
+            font-size: 14px;
+        }
+        .footer {
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+        }
+        .footer p {
+            font-size: 13px;
+            color: #6b7280;
+            margin: 8px 0;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 32px;
+            color: #6b7280;
+        }
         @media (max-width: 480px) {
-            body { padding: 12px; }
-            .book-title { font-size: 16px; }
+            body {
+                padding: 12px;
+            }
+            .container {
+                padding: 20px;
+            }
+            .book-title {
+                font-size: 16px;
+            }
+            .download-links {
+                flex-direction: column;
+            }
+            .download-link {
+                text-align: center;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>Thank you for your purchase!</h1>
-    <p class="order-ref">Order Reference: #{{ order_id }}</p>
+    <div class="container">
+        <div class="header">
+            <h1>Thanks for your order! 🎉</h1>
+            <p class="order-ref">Order #{{ order_id }}</p>
+        </div>
 
-    <p>Your purchase has been confirmed. Below are your downloadable items — the links will be valid for a short time. If you have any trouble, please contact support.</p>
+        <div class="intro">
+            <p>Your payment has been confirmed and your books are ready to download. Click the buttons below to get your files.</p>
+        </div>
 
-    <h2>Your Books</h2>
+        {% if books | length == 0 %}
+            <div class="empty-state">
+                <p>No downloadable items found for this order. If you believe this is an error, please contact support.</p>
+            </div>
+        {% else %}
+            <h2>Your Downloads</h2>
 
-    {% if books | length == 0 %}
-        <p class="small">No downloadable books were found for this order.</p>
-    {% else %}
-        {# Iterate books -> editions -> files. Editions may be a list per book. #}
-        {% for book in books %}
-            {% for edition in book.editions %}
-                <div class="book">
-                    <div class="book-title">{{ edition.title | safe }}</div>
-                    <div class="book-author">{{ edition.author_name | safe }}</div>
+            {% for book in books %}
+                {% for edition in book.editions %}
+                    <div class="book">
+                        <div class="book-title">{{ edition.title }}</div>
+                        <div class="book-author">by {{ edition.author_name }}</div>
 
-                    {% if edition.files and edition.files | length > 0 %}
-                        <div class="download-links">
-                            <strong>Download</strong><br>
-                            {% for file in edition.files %}
-                                {# file.path is expected to be a relative API path like /api/download/xxxxx #}
-                                {% if base_url %}
-                                    <a href="{{ base_url | safe }}{{ file.path | safe }}" class="download-link" target="_blank" rel="noopener noreferrer">
-                                {% else %}
-                                    <a href="{{ file.path | safe }}" class="download-link" target="_blank" rel="noopener noreferrer">
-                                {% endif %}
-                                    {{ file.format | default(value="Download") | upper }}
-                                </a>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <div class="note">No downloadable files were attached to this edition.</div>
-                    {% endif %}
-                </div>
+                        {% if edition.files and edition.files | length > 0 %}
+                            <div class="download-section">
+                                <div class="download-label">Available Formats</div>
+                                <div class="download-links">
+                                    {% for file in edition.files %}
+                                        <a href="{{ base_url }}{{ file.path }}" class="download-link">
+                                            {{ file.format | default(value="Download") | upper }}
+                                        </a>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% else %}
+                            <p style="color: #6b7280; font-size: 14px; margin: 0;">No files available for this edition.</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
             {% endfor %}
-        {% endfor %}
-    {% endif %}
 
-    <div class="footer">
-        <p class="small">If you have any questions about your order, reply to this email or visit our support page.</p>
-        <p class="small">Thanks for choosing Dragon Books!</p>
+            <div class="info-box">
+                <p><strong>Important:</strong> Download links are unique to your order. Please save your files to a secure location.</p>
+            </div>
+        {% endif %}
+
+        <div class="footer">
+            <p>Questions about your order? Reply to this email and we'll be happy to help.</p>
+            <p style="margin-top: 16px; color: #9ca3af;">
+                Dragon Books &bull; Bringing stories to life
+            </p>
+        </div>
     </div>
 </body>
 </html>

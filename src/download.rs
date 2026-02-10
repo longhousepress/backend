@@ -7,6 +7,8 @@ use rocket::response::{Responder, Result as RespResult};
 use rocket::{Request, State};
 use std::path::Path;
 
+const DOWNLOAD_DIR: &str = "static"; // or whatever your directory is
+
 #[get("/api/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
     // Verify the token and extract the filepath from its payload
@@ -17,6 +19,11 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
             return Err(Status::Gone);
         }
     };
+
+    if !file_path.starts_with(DOWNLOAD_DIR) {
+        rocket::warn!("Token points to file outside download directory: {}", file_path);
+        return Err(Status::Gone);
+    }
 
     let named_file = NamedFile::open(&file_path).await.map_err(|e| {
         rocket::error!("Failed to open file for download: {:?}", e);

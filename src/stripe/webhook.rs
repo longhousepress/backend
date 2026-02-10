@@ -88,7 +88,7 @@ pub async fn stripe_webhook(
                 })?
                 .ok_or_else(|| {
                     rocket::warn!("Webhook received for unknown session {}", session_id);
-                    rocket::http::Status::Ok
+                    rocket::http::Status::InternalServerError
                 })?;
 
         if payment_status == "paid" {
