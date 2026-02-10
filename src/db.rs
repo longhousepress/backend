@@ -514,19 +514,20 @@ pub async fn get_edition_name(id: i64, db: &SqlitePool) -> Result<String> {
     }
 }
 
-pub async fn get_edition_price(id: i64, db: &SqlitePool) -> Result<u32> {
-    // Look up the edition price by numeric id from edition_prices (defaulting to GBP)
+pub async fn get_edition_price(id: i64, currency: &str, db: &SqlitePool) -> Result<u32> {
+    // Look up the edition price by numeric id from edition_prices
     let price_opt = sqlx::query_scalar::<_, i64>(
-        "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = 'GBP'",
+        "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
     )
     .bind(id)
+    .bind(currency)
     .fetch_optional(db)
     .await?;
     match price_opt {
         Some(price) => Ok(price as u32),
         None => {
-            rocket::error!("Edition id {} not found when fetching price", id);
-            Err(anyhow::anyhow!("edition id {} not found", id))
+            rocket::error!("Edition id {} not found when fetching price for currency {}", id, currency);
+            Err(anyhow::anyhow!("edition id {} not found for currency {}", id, currency))
         }
     }
 }

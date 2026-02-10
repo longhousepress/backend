@@ -34,7 +34,7 @@ pub async fn create_checkout_session(
         mode: CheckoutMode::Payment,
         success_url: config.stripe_success_url.clone(),
         cancel_url: config.stripe_cancel_url.clone(),
-        line_items: create_checkout_body(db.inner(), req).await?,
+        line_items: create_checkout_body(db.inner(), req, &req.currency).await?,
         customer_email: Some(req.email.clone()),
         client_reference_id: None,
         payment_intent_data: None,
@@ -73,7 +73,7 @@ pub async fn create_checkout_session(
 
     // Update our order row with the stripe_session_id
     match req
-        .persist(db.inner(), &stripe_session_id, Some("GBP"))
+        .persist(db.inner(), &stripe_session_id, Some(req.currency.as_str()))
         .await
     {
         Ok(_) => Ok(CheckoutSession { url }),
@@ -113,15 +113,16 @@ async fn expire_stripe_session(config: &Config, id: &str) -> Result<()> {
 pub async fn create_checkout_body(
     db: &SqlitePool,
     req: &CheckoutRequest,
+    currency: &Currency,
 ) -> Result<Vec<StripeLineItem>> {
     let mut items: Vec<StripeLineItem> = Vec::with_capacity(req.items.len());
     for item in &req.items {
         let name = get_edition_name(item.edition_id, db).await?;
-        let unit_amount = get_edition_price(item.edition_id, db).await?;
+        let unit_amount = get_edition_price(item.edition_id, currency.as_str(), db).await?;
         let final_item = StripeLineItem {
             quantity: item.quantity,
             price_data: StripePriceData {
-                currency: Currency::Gbp,
+                currency: currency.clone(),
                 product_data: StripeProductData { name },
                 unit_amount,
             },
@@ -174,10 +175,23 @@ pub struct PaymentIntentData {
     pub metadata: std::collections::HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Currency {
+    Usd,
+    Eur,
     Gbp,
+}
+
+impl Currency {
+    // Convert Currency enum to uppercase string for database queries and Stripe API
+    pub fn as_str(&self) -> &str {
+        match self {
+            Currency::Usd => "USD",
+            Currency::Eur => "EUR",
+            Currency::Gbp => "GBP",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -190,6 +204,7 @@ pub enum CheckoutMode {
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct CheckoutRequest {
     pub email: String,
+    pub currency: Currency,
     pub items: Vec<CheckoutItem>,
 }
 
