@@ -1,4 +1,5 @@
 use anyhow::Result;
+use email_address::EmailAddress;
 use rocket::{State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -15,6 +16,13 @@ pub async fn checkout(
 ) -> Result<Json<CheckoutSession>, Status> {
     // take ownership of the parsed request body
     let req = request.into_inner();
+    
+    // Validate the request before processing
+    if let Err(e) = validate_checkout_request(&req, db).await {
+        rocket::warn!("Invalid checkout request: {}", e);
+        return Err(Status::BadRequest);
+    }
+    
     match create_checkout_session(config, db, &req).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
@@ -22,6 +30,46 @@ pub async fn checkout(
             Err(Status::InternalServerError)
         }
     }
+}
+
+async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Result<()> {
+    // Validate email format
+    if !EmailAddress::is_valid(&req.email) {
+        return Err(anyhow::anyhow!("Invalid email address"));
+    }
+    
+    // Validate items exist and are not empty
+    if req.items.is_empty() {
+        return Err(anyhow::anyhow!("Checkout must contain at least one item"));
+    }
+    
+    // Validate each item
+    for item in &req.items {
+        // Validate quantity is not zero and not too high
+        if item.quantity == 0 {
+            return Err(anyhow::anyhow!("Item quantity must be at least 1"));
+        }
+        if item.quantity > 100 {
+            return Err(anyhow::anyhow!("Item quantity cannot exceed 100"));
+        }
+        
+        // Check that the edition exists and is listed
+        let listed = sqlx::query_scalar::<_, i64>(
+            "SELECT listed FROM editions WHERE id = ?"
+        )
+        .bind(item.edition_id)
+        .fetch_optional(db)
+        .await?;
+        
+        match listed {
+            None => return Err(anyhow::anyhow!("Edition {} not found", item.edition_id)),
+            Some(0) => return Err(anyhow::anyhow!("Edition {} is not available for purchase", item.edition_id)),
+            Some(1) => {}, // Valid
+            Some(_) => return Err(anyhow::anyhow!("Edition {} has invalid listing status", item.edition_id)),
+        }
+    }
+    
+    Ok(())
 }
 
 pub async fn create_checkout_session(
@@ -119,6 +167,13 @@ pub async fn create_checkout_body(
     for item in &req.items {
         let name = get_edition_name(item.edition_id, db).await?;
         let unit_amount = get_edition_price(item.edition_id, currency.as_str(), db).await?;
+        
+        // Check for potential overflow when calculating line item total
+        let quantity_u64 = item.quantity as u64;
+        let unit_amount_u64 = unit_amount as u64;
+        quantity_u64.checked_mul(unit_amount_u64)
+            .ok_or_else(|| anyhow::anyhow!("Price calculation overflow for edition {}", item.edition_id))?;
+        
         let final_item = StripeLineItem {
             quantity: item.quantity,
             price_data: StripePriceData {
@@ -254,7 +309,14 @@ impl CheckoutRequest {
             .fetch_one(&mut *tx)
             .await?;
             let price: i64 = row.price;
-            total_amount += price * (item.quantity as i64);
+            
+            // Use checked multiplication to prevent overflow
+            let line_total = price.checked_mul(item.quantity as i64)
+                .ok_or_else(|| anyhow::anyhow!("Price overflow for edition {}", edition_id))?;
+            
+            // Use checked addition to prevent overflow
+            total_amount = total_amount.checked_add(line_total)
+                .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
         }
 
         // Insert the order (paid is NULL for pending) inside the transaction

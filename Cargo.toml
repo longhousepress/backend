@@ -25,3 +25,4 @@ lettre = { version = "0.11.19", features = ["smtp-transport", "tokio1-native-tls
 tera = "1.20.1"
 percent-encoding = "2.3.2"
 figment = { version = "0.10.19", features = ["env", "toml"] }
+email_address = "0.2.9"
