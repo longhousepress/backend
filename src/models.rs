@@ -72,4 +72,5 @@ pub enum FileFormat {
     Azw3,
     Pdf,
     Sample,
+    Cover,
 }

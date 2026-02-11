@@ -150,7 +150,8 @@ INSERT OR IGNORE INTO file_formats (name) VALUES
     ('kepub'),
     ('azw3'),
     ('pdf'),
-    ('sample');
+    ('sample'),
+    ('cover');
 
 -- Concrete downloadable files for an edition
 CREATE TABLE IF NOT EXISTS files (
@@ -277,7 +278,7 @@ JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language;
 -- View: Edition contributors pivoted by role
 -- Consolidates translator, cover artist, illustrator, and introduction writer into one query
 CREATE VIEW IF NOT EXISTS edition_contributor_roles AS
-SELECT 
+SELECT
     ec.edition_id,
     MAX(CASE WHEN r.name = 'Translator' THEN pl.name END) as translator_name,
     MAX(CASE WHEN r.name = 'Cover Artist' THEN pl.name END) as cover_artist_name,

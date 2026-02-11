@@ -181,6 +181,7 @@ pub async fn get_downloadable_books_for_order(
                     "kepub" => FileFormat::Kepub,
                     "azw3" => FileFormat::Azw3,
                     "pdf" => FileFormat::Pdf,
+                    "cover" => FileFormat::Cover,
                     other => {
                         rocket::warn!(
                             "Unknown file format '{}' for edition {}, skipping",
