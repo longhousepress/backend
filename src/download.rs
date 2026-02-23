@@ -9,7 +9,7 @@ use std::path::Path;
 
 const DOWNLOAD_DIR: &str = "static"; // or whatever your directory is
 
-#[get("/api/download/<tok>")]
+#[get("/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
     // Verify the token and extract the filepath from its payload
     let file_path = match verify(tok, &config.token_key) {

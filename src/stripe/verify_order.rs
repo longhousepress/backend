@@ -34,7 +34,7 @@ impl<'r> Responder<'r, 'static> for ErrorResponse {
 }
 
 // HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
-#[get("/api/order/verify?<session_id>")]
+#[get("/order/verify?<session_id>")]
 pub async fn verify_order_endpoint(
     config: &State<Config>,
     db: &State<SqlitePool>,

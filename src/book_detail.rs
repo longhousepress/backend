@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 
 use crate::models::Book;
 
-#[get("/api/books/<slug>", rank = 2)]
+#[get("/books/<slug>", rank = 2)]
 pub async fn book_detail(db: &State<SqlitePool>, slug: String) -> Result<Json<Book>, Status> {
     // Validate slug length to prevent DoS attacks
     if slug.len() > 200 {

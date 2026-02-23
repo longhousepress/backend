@@ -8,7 +8,7 @@ use sqlx::sqlite::SqlitePool;
 use crate::config::Config;
 use crate::db::{get_edition_name, get_edition_price};
 
-#[post("/api/checkout", data = "<request>")]
+#[post("/checkout", data = "<request>")]
 pub async fn checkout(
     config: &State<Config>,
     db: &State<SqlitePool>,

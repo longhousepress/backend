@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 use crate::db::load_books;
 use crate::models::Book;
 
-#[get("/api/books", rank = 1)]
+#[get("/books", rank = 1)]
 pub async fn books(db: &State<SqlitePool>) -> Result<Json<Vec<Book>>, Status> {
     match load_books(db).await {
         Ok(books) => Ok(Json(books)),
