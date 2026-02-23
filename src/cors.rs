@@ -5,10 +5,17 @@ use rocket_cors::{AllowedHeaders, AllowedMethods, AllowedOrigins, CorsOptions};
 use std::collections::HashSet;
 
 // Fairing to set up CORS based on the extracted config
+// Only applies CORS if allowed_origins is not empty (for dev)
 pub async fn setup_cors(rocket: Rocket<Build>) -> Rocket<Build> {
     let config = rocket
         .state::<Config>()
         .expect("Config should be managed at this point");
+
+    // Only set up CORS if we have allowed origins (for dev environments)
+    if config.allowed_origins.is_empty() {
+        rocket::info!("CORS disabled - no allowed_origins configured");
+        return rocket;
+    }
 
     let allowed_origins = AllowedOrigins::some_exact(&config.allowed_origins);
     let allowed_methods: AllowedMethods = vec![Method::Get, Method::Post]

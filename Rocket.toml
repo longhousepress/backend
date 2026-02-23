@@ -1,7 +1,7 @@
 [default]
 cli_colors = false
-address="0.0.0.0"
-
+address="127.0.0.1"
+port=8111
 [default.limits]
 json = "1 MiB"
 forms = "128 KiB"

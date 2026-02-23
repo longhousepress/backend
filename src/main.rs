@@ -12,6 +12,7 @@ mod tokens;
 use figment::providers::{Env, Format, Toml};
 use figment::{Figment, Profile};
 use rocket::fairing::AdHoc;
+use rocket::fs::FileServer;
 use tera::Tera;
 
 use crate::config::Config;
@@ -56,7 +57,7 @@ async fn rocket() -> _ {
         }))
         .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
         .mount(
-            "/",
+            "/api",
             routes![
                 stripe::verify_order::verify_order_endpoint,
                 stripe::checkout::checkout,
@@ -66,4 +67,5 @@ async fn rocket() -> _ {
                 stripe::webhook::stripe_webhook
             ],
         )
+        .mount("/", FileServer::from("public"))
 }
