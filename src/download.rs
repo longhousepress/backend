@@ -21,7 +21,10 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
     };
 
     if !file_path.starts_with(DOWNLOAD_DIR) {
-        rocket::warn!("Token points to file outside download directory: {}", file_path);
+        rocket::warn!(
+            "Token points to file outside download directory: {}",
+            file_path
+        );
         return Err(Status::Gone);
     }
 

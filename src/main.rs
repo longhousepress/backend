@@ -9,8 +9,8 @@ mod models;
 mod stripe;
 mod tokens;
 
+use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use figment::{Figment, Profile};
 use rocket::fairing::AdHoc;
 use rocket::fs::FileServer;
 use tera::Tera;
@@ -24,11 +24,6 @@ extern crate rocket;
 
 #[launch]
 async fn rocket() -> _ {
-    // Load .env and crash immediately if it's not there
-    dotenvy::dotenv().expect("Failed to load .env");
-
-    rocket::info!("Dragon backend starting up");
-
     // Load db and crash immediately if we can't
     let db = load_db().await.expect("Failed to load database");
     rocket::info!("Database loaded successfully");
@@ -39,8 +34,7 @@ async fn rocket() -> _ {
     // Configure Figment to read from Rocket.toml and environment variables
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
-        .merge(Env::raw())
-        .select(Profile::from_env_or("ROCKET_PROFILE", "default"));
+        .merge(Env::raw());
 
     rocket::custom(figment)
         .manage(tera)

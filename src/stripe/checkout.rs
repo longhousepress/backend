@@ -16,13 +16,13 @@ pub async fn checkout(
 ) -> Result<Json<CheckoutSession>, Status> {
     // take ownership of the parsed request body
     let req = request.into_inner();
-    
+
     // Validate the request before processing
     if let Err(e) = validate_checkout_request(&req, db).await {
         rocket::warn!("Invalid checkout request: {}", e);
         return Err(Status::BadRequest);
     }
-    
+
     match create_checkout_session(config, db, &req).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
@@ -37,17 +37,19 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
     if !EmailAddress::is_valid(&req.email) {
         return Err(anyhow::anyhow!("Invalid email address"));
     }
-    
+
     // Validate items exist and are not empty
     if req.items.is_empty() {
         return Err(anyhow::anyhow!("Checkout must contain at least one item"));
     }
-    
+
     // Limit total number of line items (prevent DoS)
     if req.items.len() > 50 {
-        return Err(anyhow::anyhow!("Checkout cannot contain more than 50 items"));
+        return Err(anyhow::anyhow!(
+            "Checkout cannot contain more than 50 items"
+        ));
     }
-    
+
     // Validate each item
     let currency_str = req.currency.as_str();
     for item in &req.items {
@@ -58,7 +60,7 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
         if item.quantity > 100 {
             return Err(anyhow::anyhow!("Item quantity cannot exceed 100"));
         }
-        
+
         // Check that the edition exists, is listed, and has a price for the requested currency
         let result = sqlx::query!(
             "SELECT e.listed, ep.price 
@@ -70,21 +72,27 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
         )
         .fetch_optional(db)
         .await?;
-        
+
         match result {
             None => return Err(anyhow::anyhow!("Edition {} not found", item.edition_id)),
             Some(row) => {
                 if row.listed != Some(1) {
-                    return Err(anyhow::anyhow!("Edition {} is not available for purchase", item.edition_id));
+                    return Err(anyhow::anyhow!(
+                        "Edition {} is not available for purchase",
+                        item.edition_id
+                    ));
                 }
                 if row.price.is_none() {
-                    return Err(anyhow::anyhow!("Edition {} does not have a price for currency {}", 
-                        item.edition_id, currency_str));
+                    return Err(anyhow::anyhow!(
+                        "Edition {} does not have a price for currency {}",
+                        item.edition_id,
+                        currency_str
+                    ));
                 }
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -192,13 +200,14 @@ pub async fn create_checkout_body(
     for item in &req.items {
         let name = get_edition_name(item.edition_id, db).await?;
         let unit_amount = get_edition_price(item.edition_id, currency.as_str(), db).await?;
-        
+
         // Check for potential overflow when calculating line item total
         let quantity_u64 = item.quantity as u64;
         let unit_amount_u64 = unit_amount as u64;
-        quantity_u64.checked_mul(unit_amount_u64)
-            .ok_or_else(|| anyhow::anyhow!("Price calculation overflow for edition {}", item.edition_id))?;
-        
+        quantity_u64.checked_mul(unit_amount_u64).ok_or_else(|| {
+            anyhow::anyhow!("Price calculation overflow for edition {}", item.edition_id)
+        })?;
+
         let final_item = StripeLineItem {
             quantity: item.quantity,
             price_data: StripePriceData {
@@ -334,13 +343,15 @@ impl CheckoutRequest {
             .fetch_one(&mut *tx)
             .await?;
             let price: i64 = row.price;
-            
+
             // Use checked multiplication to prevent overflow
-            let line_total = price.checked_mul(item.quantity as i64)
+            let line_total = price
+                .checked_mul(item.quantity as i64)
                 .ok_or_else(|| anyhow::anyhow!("Price overflow for edition {}", edition_id))?;
-            
+
             // Use checked addition to prevent overflow
-            total_amount = total_amount.checked_add(line_total)
+            total_amount = total_amount
+                .checked_add(line_total)
                 .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
         }
 

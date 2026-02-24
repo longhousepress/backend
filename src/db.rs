@@ -526,8 +526,16 @@ pub async fn get_edition_price(id: i64, currency: &str, db: &SqlitePool) -> Resu
     match price_opt {
         Some(price) => Ok(price as u32),
         None => {
-            rocket::error!("Edition id {} not found when fetching price for currency {}", id, currency);
-            Err(anyhow::anyhow!("edition id {} not found for currency {}", id, currency))
+            rocket::error!(
+                "Edition id {} not found when fetching price for currency {}",
+                id,
+                currency
+            );
+            Err(anyhow::anyhow!(
+                "edition id {} not found for currency {}",
+                id,
+                currency
+            ))
         }
     }
 }

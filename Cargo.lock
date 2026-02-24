@@ -151,7 +151,6 @@ dependencies = [
  "anyhow",
  "base64",
  "chrono",
- "dotenvy",
  "email_address",
  "figment",
  "hex",
