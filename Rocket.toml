@@ -1,7 +1,14 @@
 [default]
 cli_colors = false
-address="127.0.0.1"
 port=8111
 [default.limits]
 json = "1 MiB"
 forms = "128 KiB"
+
+[debug]
+address = "192.168.0.127"
+port = 8111
+
+[release]
+address = "127.0.0.1"
+port = 2222
