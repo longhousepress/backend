@@ -162,48 +162,45 @@ pub async fn get_downloadable_books_for_order(
     let mut books: Vec<Book> = Vec::new();
 
     for oi_row in order_item_rows {
-        // Repeat for the quantity purchased (e.g., if quantity = 2, create 2 book objects)
+        let file_rows = sqlx::query!(
+            "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
+             FROM files
+             INNER JOIN file_formats ff ON files.file_format_id = ff.id
+             WHERE files.edition_id = ? AND ff.name != 'sample'",
+            oi_row.edition_id
+        )
+        .fetch_all(db)
+        .await?;
+
         for _ in 0..oi_row.quantity {
-            // Fetch files for this edition (each iteration gets fresh tokens)
-            let file_rows = sqlx::query!(
-                "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
-                 FROM files
-                 INNER JOIN file_formats ff ON files.file_format_id = ff.id
-                 WHERE files.edition_id = ? AND ff.name != 'sample'",
-                oi_row.edition_id
-            )
-            .fetch_all(db)
-            .await?;
+            let files: Vec<File> = file_rows
+                .iter()
+                .filter_map(|fr| {
+                    let fmt = match fr.format_name.as_str() {
+                        "epub" => FileFormat::Epub,
+                        "kepub" => FileFormat::Kepub,
+                        "azw3" => FileFormat::Azw3,
+                        "pdf" => FileFormat::Pdf,
+                        "cover" => FileFormat::Cover,
+                        other => {
+                            rocket::warn!(
+                                "Unknown file format '{}' for edition {}, skipping",
+                                other,
+                                oi_row.edition_id
+                            );
+                            return None;
+                        }
+                    };
 
-            let mut files: Vec<File> = Vec::with_capacity(file_rows.len());
-            for fr in file_rows {
-                let fmt = match fr.format_name.as_str() {
-                    "epub" => FileFormat::Epub,
-                    "kepub" => FileFormat::Kepub,
-                    "azw3" => FileFormat::Azw3,
-                    "pdf" => FileFormat::Pdf,
-                    "cover" => FileFormat::Cover,
-                    other => {
-                        rocket::warn!(
-                            "Unknown file format '{}' for edition {}, skipping",
-                            other,
-                            oi_row.edition_id
-                        );
-                        continue; // skip unknown formats
-                    }
-                };
+                    let token = mint(&fr.file_path, &config.token_key);
+                    let url = format!("/api/download/{}", token);
+                    Some(File {
+                        format: fmt,
+                        path: url,
+                    })
+                })
+                .collect();
 
-                // Mint a download token on-demand for this filepath
-                // Each iteration creates unique tokens even for the same file
-                let token = mint(&fr.file_path, &config.token_key);
-                let url = format!("/api/download/{}", token);
-                files.push(File {
-                    format: fmt,
-                    path: url,
-                });
-            }
-
-            // Build a minimal Edition
             let edition = Edition {
                 id: oi_row.edition_id,
                 title: oi_row.title.clone(),
@@ -230,8 +227,6 @@ pub async fn get_downloadable_books_for_order(
                 samples: None,
             };
 
-            // Create a separate Book object for each quantity
-            // This ensures customers can gift or distribute copies with unique tokens
             let book = Book {
                 id: oi_row.book_id,
                 title: oi_row.title.clone(),
