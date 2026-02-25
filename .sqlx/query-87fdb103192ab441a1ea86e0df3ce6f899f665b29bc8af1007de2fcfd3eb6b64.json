@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.listed, ep.price \n             FROM editions e\n             LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?\n             WHERE e.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "listed",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "price",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "87fdb103192ab441a1ea86e0df3ce6f899f665b29bc8af1007de2fcfd3eb6b64"
+}

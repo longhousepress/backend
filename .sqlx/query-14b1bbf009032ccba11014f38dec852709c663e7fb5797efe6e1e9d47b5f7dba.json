@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            e.id as \"id!: i64\",\n            bl.title as \"title!: String\",\n            bl.subtitle as \"subtitle: Option<String>\",\n            pl.name as \"author!: String\",\n            e.cover_filepath as \"cover!: String\",\n            e.cover_name as \"cover_name: Option<String>\",\n            b.slug as \"book_slug!: String\",\n            b.id as \"book_id!: i64\",\n            b.original_language as \"original_language!: String\",\n            b.original_publication_year as \"original_publication_year: Option<i64>\",\n            f.name as \"format!: String\",\n            e.language as \"language!: String\",\n            e.edition_notes as \"edition_notes: Option<String>\"\n         FROM editions e\n         INNER JOIN books b ON e.book_id = b.id\n         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language\n         INNER JOIN formats f ON e.format_id = f.id\n         INNER JOIN book_contributors bc ON bc.book_id = b.id\n         INNER JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'\n         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language\n         WHERE e.listed = 1\n         ORDER BY b.id, e.id, bc.ordinal ASC NULLS LAST",
+  "query": "SELECT\n            e.id as \"id!: i64\",\n            bl.title as \"title!: String\",\n            bl.subtitle as \"subtitle: Option<String>\",\n            GROUP_CONCAT(pl.name, ', ') as \"author!: String\",\n            e.cover_filepath as \"cover!: String\",\n            e.cover_name as \"cover_name: Option<String>\",\n            b.slug as \"book_slug!: String\",\n            b.id as \"book_id!: i64\",\n            b.original_language as \"original_language!: String\",\n            b.original_publication_year as \"original_publication_year: Option<i64>\",\n            f.name as \"format!: String\",\n            e.language as \"language!: String\",\n            e.edition_notes as \"edition_notes: Option<String>\"\n         FROM editions e\n         INNER JOIN books b ON e.book_id = b.id\n         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language\n         INNER JOIN formats f ON e.format_id = f.id\n         LEFT JOIN book_contributors bc ON bc.book_id = b.id\n         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'\n         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language\n         WHERE e.listed = 1\n         GROUP BY e.id, bl.title, bl.subtitle, e.cover_filepath, e.cover_name, b.slug, b.id, b.original_language, b.original_publication_year, f.name, e.language, e.edition_notes\n         ORDER BY b.id, e.id",
   "describe": {
     "columns": [
       {
@@ -76,7 +76,7 @@
       true,
       false,
       true,
-      false,
+      true,
       false,
       true,
       false,
@@ -88,5 +88,5 @@
       true
     ]
   },
-  "hash": "e81ec9e8c2e52e7b51e6a302216d72cd91aa36aa0377db8357f8673031175488"
+  "hash": "14b1bbf009032ccba11014f38dec852709c663e7fb5797efe6e1e9d47b5f7dba"
 }

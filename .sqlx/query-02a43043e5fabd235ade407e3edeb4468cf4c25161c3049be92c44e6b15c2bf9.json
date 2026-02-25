@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            oi.quantity as \"quantity!: i64\",\n            e.id as \"edition_id!: i64\",\n            b.id as \"book_id!: i64\",\n            bl.title as \"title!: String\",\n            GROUP_CONCAT(pl.name, ', ') as \"author_names!: String\",\n            e.cover_filepath as \"cover!: String\",\n            f.name as \"format!: String\",\n            e.language as \"language!: String\",\n            b.original_language as \"original_language!: String\",\n            b.slug as \"slug!: String\"\n         FROM order_items oi\n         INNER JOIN editions e ON oi.edition_id = e.id\n         INNER JOIN books b ON e.book_id = b.id\n         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language\n         INNER JOIN formats f ON e.format_id = f.id\n         LEFT JOIN book_contributors bc ON bc.book_id = b.id\n         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'\n         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language\n         WHERE oi.order_id = ?\n         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug, b.original_language\n         ORDER BY b.id, e.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "quantity!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "edition_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "book_id!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "author_names!: String",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "cover!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "format!: String",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "language!: String",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "original_language!: String",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug!: String",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "02a43043e5fabd235ade407e3edeb4468cf4c25161c3049be92c44e6b15c2bf9"
+}

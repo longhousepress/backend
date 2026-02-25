@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, slug, original_language, original_publication_year FROM books WHERE slug = ?",
+  "query": "SELECT id as \"id!: i64\", slug, original_language as \"original_language!: String\", original_publication_year FROM books WHERE slug = ?",
   "describe": {
     "columns": [
       {
-        "name": "id",
+        "name": "id!: i64",
         "ordinal": 0,
         "type_info": "Integer"
       },
@@ -14,7 +14,7 @@
         "type_info": "Text"
       },
       {
-        "name": "original_language",
+        "name": "original_language!: String",
         "ordinal": 2,
         "type_info": "Text"
       },
@@ -34,5 +34,5 @@
       true
     ]
   },
-  "hash": "33817cbfdd6a4144ab4375c689c32dcda91f45aa6ba217f626a7d44ab3d6235e"
+  "hash": "178db10dc4f7163b2c7f9a2403fde6536f54c41afa2711dfb84b7041f597df40"
 }
