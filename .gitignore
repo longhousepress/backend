@@ -1,5 +1,6 @@
 /target
 db.sqlite3
 .env
+.env.dev
 static/
 public/
