@@ -135,6 +135,7 @@ pub async fn get_downloadable_books_for_order(
             e.cover_filepath as \"cover!: String\",
             f.name as \"format!: String\",
             e.language as \"language!: String\",
+            b.original_language as \"original_language!: String\",
             b.slug as \"slug!: String\"
          FROM order_items oi
          INNER JOIN editions e ON oi.edition_id = e.id
@@ -145,7 +146,7 @@ pub async fn get_downloadable_books_for_order(
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE oi.order_id = ?
-         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug
+         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug, b.original_language
          ORDER BY b.id, e.id",
         order_id
     )
@@ -237,7 +238,7 @@ pub async fn get_downloadable_books_for_order(
                 subtitle: None,
                 author: oi_row.author_names.clone(),
                 book_slug: oi_row.slug.clone(),
-                original_language: String::from("eng"), // default, not queried in this context
+                original_language: oi_row.original_language.clone(),
                 original_publication_year: None,
                 contributors: Vec::new(),
                 editions: vec![edition],
