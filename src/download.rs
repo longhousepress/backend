@@ -5,9 +5,17 @@ use rocket::fs::NamedFile;
 use rocket::http::Status;
 use rocket::response::{Responder, Result as RespResult};
 use rocket::{Request, State};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-const DOWNLOAD_DIR: &str = "static"; // or whatever your directory is
+// technically, this is the only thing that the service should have read access to on the system
+const DOWNLOAD_DIR: &str = "static";
+static DOWNLOAD_BASE: OnceLock<PathBuf> = OnceLock::new();
+fn download_base() -> &'static PathBuf {
+    DOWNLOAD_BASE.get_or_init(|| {
+        Path::new(DOWNLOAD_DIR).canonicalize().expect("download dir must exist")
+    })
+}
 
 #[get("/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
@@ -20,15 +28,13 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
         }
     };
 
-    if !file_path.starts_with(DOWNLOAD_DIR) {
-        rocket::warn!(
-            "Token points to file outside download directory: {}",
-            file_path
-        );
+    let full_path = Path::new(DOWNLOAD_DIR).join(&file_path);
+    let canonical = full_path.canonicalize().map_err(|_| Status::Gone)?;
+    if !canonical.starts_with(download_base()) {
         return Err(Status::Gone);
     }
 
-    let named_file = NamedFile::open(&file_path).await.map_err(|e| {
+    let named_file = NamedFile::open(&canonical).await.map_err(|e| {
         rocket::error!("Failed to open file for download: {:?}", e);
         Status::InternalServerError
     })?;
