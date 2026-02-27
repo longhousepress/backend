@@ -1,5 +1,6 @@
 use anyhow::Result;
 use email_address::EmailAddress;
+use reqwest::Client;
 use rocket::{State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -63,7 +64,7 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
 
         // Check that the edition exists, is listed, and has a price for the requested currency
         let result = sqlx::query!(
-            "SELECT e.listed, ep.price 
+            "SELECT e.listed, ep.price
              FROM editions e
              LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?
              WHERE e.id = ?",
@@ -156,7 +157,7 @@ pub async fn create_checkout_session(
                 stripe_session_id,
                 e
             );
-            if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id).await {
+            if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id, client).await {
                 rocket::warn!(
                     "Failed to expire dangling Stripe session {}: {}",
                     stripe_session_id,
@@ -168,9 +169,8 @@ pub async fn create_checkout_session(
     }
 }
 
-async fn expire_stripe_session(config: &Config, id: &str) -> Result<()> {
+async fn expire_stripe_session(config: &Config, id: &str, client: Client) -> Result<()> {
     // Send to Stripe
-    let client = reqwest::Client::new();
     let response = client
         .post(format!(
             "https://api.stripe.com/v1/checkout/sessions/{id}/expire"
