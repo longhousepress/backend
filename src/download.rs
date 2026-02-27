@@ -6,16 +6,13 @@ use rocket::http::Status;
 use rocket::response::{Responder, Result as RespResult};
 use rocket::{Request, State};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 // technically, this is the only thing that the service should have read access to on the system
 const DOWNLOAD_DIR: &str = "static";
-static DOWNLOAD_BASE: OnceLock<PathBuf> = OnceLock::new();
-fn download_base() -> &'static PathBuf {
-    DOWNLOAD_BASE.get_or_init(|| {
-        Path::new(DOWNLOAD_DIR).canonicalize().expect("download dir must exist")
-    })
-}
+static DOWNLOAD_BASE: LazyLock<PathBuf> = LazyLock::new(|| {
+    Path::new(DOWNLOAD_DIR).canonicalize().expect("download dir must exist")
+});
 
 #[get("/download/<tok>")]
 pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadResponder, Status> {
@@ -28,9 +25,9 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
         }
     };
 
-    let full_path = Path::new(DOWNLOAD_DIR).join(&file_path);
+    let full_path = Path::new(&file_path);
     let canonical = full_path.canonicalize().map_err(|_| Status::Gone)?;
-    if !canonical.starts_with(download_base()) {
+    if !canonical.starts_with(DOWNLOAD_BASE.as_path()) {
         return Err(Status::Gone);
     }
 
