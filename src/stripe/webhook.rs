@@ -74,7 +74,7 @@ pub async fn stripe_webhook(
 
         // Look up the order by stripe_session_id and verify email matches
         let order = sqlx::query!(
-            "SELECT id, email FROM orders WHERE stripe_session_id = ?",
+            "SELECT id, email, paid FROM orders WHERE stripe_session_id = ?",
             session_id
         )
         .fetch_optional(db.inner())
@@ -96,6 +96,12 @@ pub async fn stripe_webhook(
             rocket::error!("Order ID is null for session {}", session_id);
             rocket::http::Status::InternalServerError
         })?;
+
+        // Idempotency guard: if already paid, acknowledge and do nothing
+        if order.paid == Some(1) {
+            rocket::info!("Order {} already processed, skipping", order_id);
+            return Ok(rocket::http::Status::Ok);
+        }
 
         // Verify email from Stripe matches the email stored in our order
         let stored_email = order.email.unwrap_or_default();
