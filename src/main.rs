@@ -34,7 +34,7 @@ async fn rocket() -> _ {
     // Configure Figment to read from Rocket.toml and environment variables
     let figment = Figment::from(rocket::Config::default())
         .merge(Toml::file("Rocket.toml").nested())
-        .merge(Env::raw());
+        .merge(Env::prefixed("DRAGON_"));
 
     rocket::custom(figment)
         .manage(tera)
