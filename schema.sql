@@ -229,7 +229,7 @@ CREATE VIEW IF NOT EXISTS editions_catalog AS
 SELECT
     e.id as edition_id,
     e.isbn,
-    e.cover,
+    e.cover_name,
     e.edition_name,
     e.edition_notes,
     e.publication_date,
