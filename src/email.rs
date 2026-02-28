@@ -32,7 +32,7 @@ pub async fn send_purchase_email(
     let email = CreateEmailBaseOptions::new(
         &config.resend_from_email,
         [recipient_email],
-        "Your Dragon Books Order - Download Links Inside",
+        "Your Longhouse Press Order - Download Links Inside",
     )
     .with_html(&body);
 
