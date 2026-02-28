@@ -66,7 +66,7 @@
 </head>
 <body>
 
-    <h1>Your downloads are ready.</h1>
+    <h1>Your downloads are ready. Thank you for your custom.</h1>
 
     {% if books | length == 0 %}
         <p class="no-files">No downloadable items found for this order. If you think this is a mistake, reply to this email.</p>
