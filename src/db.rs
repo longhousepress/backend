@@ -551,6 +551,6 @@ pub async fn mark_order_paid(pool: &SqlitePool, order_id: i64, email: &str) -> R
     .execute(pool)
     .await?;
 
-    rocket::info!("Marked order {} as paid for {}", order_id, email);
+    rocket::info!("Marked order {} as paid", order_id);
     Ok(())
 }
