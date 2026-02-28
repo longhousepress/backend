@@ -9,11 +9,7 @@ pub struct Config {
     pub stripe_webhook_secret: String,
     pub stripe_success_url: String,
     pub stripe_cancel_url: String,
-    pub smtp_host: String,
-    pub smtp_port: u16,
-    pub smtp_username: String,
-    pub smtp_password: String,
-    pub smtp_from_email: String,
-    pub smtp_from_name: String,
+    pub resend_api_key: String,
+    pub resend_from_email: String,
     pub base_url: String,
 }
