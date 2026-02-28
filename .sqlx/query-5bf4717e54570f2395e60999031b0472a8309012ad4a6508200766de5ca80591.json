@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT e.listed, ep.price \n             FROM editions e\n             LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?\n             WHERE e.id = ?",
+  "query": "SELECT e.listed, ep.price\n             FROM editions e\n             LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?\n             WHERE e.id = ?",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       true
     ]
   },
-  "hash": "87fdb103192ab441a1ea86e0df3ce6f899f665b29bc8af1007de2fcfd3eb6b64"
+  "hash": "5bf4717e54570f2395e60999031b0472a8309012ad4a6508200766de5ca80591"
 }
