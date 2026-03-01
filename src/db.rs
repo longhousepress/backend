@@ -6,11 +6,10 @@ use std::path::Path;
 use crate::models::{Book, Edition};
 
 const DB_SCHEMA: &str = include_str!("../schema.sql");
-const DB_PATH: &str = "db.sqlite3";
 
-pub async fn load_db() -> Result<SqlitePool> {
+pub async fn load_db(db_path: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::new()
-        .filename(DB_PATH)
+        .filename(db_path)
         .create_if_missing(true)
         .foreign_keys(true)
         .busy_timeout(std::time::Duration::from_secs(3))
