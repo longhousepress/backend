@@ -1,6 +1,5 @@
 use rocket::serde::Deserialize;
 
-// All fields are required
 #[derive(Debug, Clone, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct Config {
@@ -12,4 +11,8 @@ pub struct Config {
     pub resend_api_key: String,
     pub resend_from_email: String,
     pub base_url: String,
+    pub db_path: String,
+    pub static_dir: String,
+    pub public_dir: String,
+    pub templates_dir: String,
 }
