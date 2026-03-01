@@ -15,7 +15,7 @@ pub fn mint(filepath: &str, token_key: &str) -> String {
     let mut payload = Vec::new();
 
     // 1) version byte (1 byte) - for future version checking
-    payload.push(1u8);
+    payload.push(TOKEN_VERSION);
 
     // 2) filepath length (2 bytes) + filepath
     let path_bytes = filepath.as_bytes();
