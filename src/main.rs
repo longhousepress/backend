@@ -8,6 +8,7 @@ mod email;
 mod models;
 mod stripe;
 mod tokens;
+mod head;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
@@ -54,7 +55,8 @@ async fn rocket() -> _ {
                 book_detail::book_detail,
                 catalog::books,
                 download::download,
-                stripe::webhook::stripe_webhook
+                stripe::webhook::stripe_webhook,
+                head::head
             ],
         )
         .mount("/", FileServer::from(public_dir))
