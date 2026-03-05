@@ -47,6 +47,7 @@ async fn rocket() -> _ {
         .manage(db)
         .attach(AdHoc::config::<Config>())
         .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
+        .mount("/", routes![head::head])
         .mount(
             "/api",
             routes![
@@ -56,7 +57,6 @@ async fn rocket() -> _ {
                 catalog::books,
                 download::download,
                 stripe::webhook::stripe_webhook,
-                head::head
             ],
         )
         .mount("/", FileServer::from(public_dir))
