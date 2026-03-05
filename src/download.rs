@@ -18,7 +18,13 @@ pub async fn download(config: &State<Config>, tok: &str) -> Result<DownloadRespo
         }
     };
 
-    let full_path = Path::new(&config.static_dir).join(&file_path);
+    // If file_path starts with "static/", strip it
+    let cleaned_file_path = file_path
+        .strip_prefix("static/")
+        .or_else(|| file_path.strip_prefix("static"))
+        .unwrap_or(&file_path);
+    let full_path = Path::new(&config.static_dir).join(cleaned_file_path);
+
     let canonical = full_path.canonicalize().map_err(|_| Status::Gone)?;
 
     let download_base = Path::new(&config.static_dir)
