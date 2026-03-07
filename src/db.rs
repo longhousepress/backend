@@ -22,7 +22,7 @@ pub async fn load_db(db_path: &str) -> Result<SqlitePool> {
     Ok(db)
 }
 
-pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
+pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> {
     // Get ALL editions of ALL books, using GROUP_CONCAT to handle multiple authors
     let rows = sqlx::query!(
         "SELECT
@@ -138,7 +138,9 @@ pub async fn load_books(db: &SqlitePool) -> Result<Vec<Book>> {
         // If any backend file doesn't exist on disk, skip this edition
         let mut all_files_exist = true;
         for file_row in backend_file_rows {
-            if !Path::new(&file_row.file_path).exists() {
+            let full_path = Path::new(static_dir).join(&file_row.file_path);
+            if !full_path.exists() {
+                eprintln!("Missing file for edition {}: {}", r.id, full_path.display());
                 all_files_exist = false;
                 break;
             }
