@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal\n         FROM book_contributors bc\n         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id\n         INNER JOIN roles r ON bc.role_id = r.id\n         INNER JOIN persons p ON bc.person_id = p.id\n         WHERE bc.book_id = ?\n         ORDER BY bc.ordinal ASC NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "bio",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "birth_year",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "death_year",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "ordinal",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "efd617e01756f1c00a1fae38d08cbd051e74a47742a674e34b448a64afa9887c"
+}
