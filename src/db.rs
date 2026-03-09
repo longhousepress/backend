@@ -60,7 +60,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
     for r in rows {
         // Fetch all edition-level contributors
         let edition_contributor_rows = sqlx::query!(
-            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
+            "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
              FROM edition_contributors ec
              INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
              INNER JOIN roles r ON ec.role_id = r.id
@@ -77,6 +77,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             .iter()
             .map(|c| crate::models::Contributor {
                 name: c.name.clone(),
+                slug: c.slug.clone(),
                 role: c.role.clone(),
                 bio: c.bio.clone(),
                 birth_year: c.birth_year,
@@ -219,7 +220,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
 
         // Fetch all book-level contributors
         let book_contributor_rows = sqlx::query!(
-            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
+            "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
              FROM book_contributors bc
              INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = ?
              INNER JOIN roles r ON bc.role_id = r.id
@@ -236,6 +237,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             .into_iter()
             .map(|c| crate::models::Contributor {
                 name: c.name,
+                slug: c.slug,
                 role: c.role,
                 bio: c.bio,
                 birth_year: c.birth_year,
@@ -330,7 +332,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
 
     // Fetch all book-level contributors
     let book_contributor_rows = sqlx::query!(
-        "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
+        "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
          FROM book_contributors bc
          INNER JOIN person_localizations pl ON pl.person_id = bc.person_id
          INNER JOIN roles r ON bc.role_id = r.id
@@ -346,6 +348,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
         .into_iter()
         .map(|c| crate::models::Contributor {
             name: c.name,
+            slug: c.slug,
             role: c.role,
             bio: c.bio,
             birth_year: c.birth_year,
@@ -365,7 +368,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
 
         // Fetch all edition-level contributors
         let edition_contributor_rows = sqlx::query!(
-            "SELECT pl.name, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
+            "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
              FROM edition_contributors ec
              INNER JOIN person_localizations pl ON pl.person_id = ec.person_id
              INNER JOIN roles r ON ec.role_id = r.id
@@ -381,6 +384,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             .into_iter()
             .map(|c| crate::models::Contributor {
                 name: c.name,
+                slug: c.slug,
                 role: c.role,
                 bio: c.bio,
                 birth_year: c.birth_year,

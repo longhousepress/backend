@@ -5,6 +5,7 @@ use sqlx::FromRow;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Contributor {
     pub name: String,
+    pub slug: Option<String>,
     pub role: String,
     pub bio: Option<String>,
     pub birth_year: Option<i64>,
