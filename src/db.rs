@@ -12,8 +12,7 @@ pub async fn load_db(db_path: &str) -> Result<SqlitePool> {
         .filename(db_path)
         .create_if_missing(true)
         .foreign_keys(true)
-        .busy_timeout(std::time::Duration::from_secs(3))
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+        .busy_timeout(std::time::Duration::from_secs(3));
 
     let db = SqlitePool::connect_with(opts).await?;
 
