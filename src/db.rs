@@ -38,7 +38,8 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             b.original_publication_year as \"original_publication_year: Option<i64>\",
             f.name as \"format!: String\",
             e.language as \"language!: String\",
-            e.edition_notes as \"edition_notes: Option<String>\"
+            e.edition_notes as \"edition_notes: Option<String>\",
+            e.original as \"original: Option<bool>\"
          FROM editions e
          INNER JOIN books b ON e.book_id = b.id
          INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
@@ -47,7 +48,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE e.listed = 1
-         GROUP BY e.id, bl.title, bl.subtitle, e.cover_filepath, e.cover_name, b.slug, b.id, b.original_language, b.original_publication_year, f.name, e.language, e.edition_notes
+         GROUP BY e.id, bl.title, bl.subtitle, e.cover_filepath, e.cover_name, b.slug, b.id, b.original_language, b.original_publication_year, f.name, e.language, e.edition_notes, e.original
          ORDER BY b.id, e.id"
     )
     .fetch_all(db)
@@ -175,6 +176,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             isbn: None,
             edition_name: None,
             edition_notes: r.edition_notes.flatten(),
+            original: r.original.flatten(),
             files: None,
             samples: None,
         };
@@ -287,6 +289,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             e.isbn as \"isbn: Option<String>\",
             e.edition_name as \"edition_name: Option<String>\",
             e.edition_notes as \"edition_notes: Option<String>\",
+            e.original as \"original: Option<bool>\",
             bl.title as \"title!: String\",
             bl.subtitle as \"subtitle: Option<String>\",
             bl.description as \"description: Option<String>\",
@@ -306,7 +309,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE b.id = ? AND e.listed = 1
-         GROUP BY e.id, e.cover_filepath, e.cover_name, e.language, e.page_count, e.publication_date, e.isbn, e.edition_name, e.edition_notes, bl.title, bl.subtitle, bl.description, f.name, b.id
+         GROUP BY e.id, e.cover_filepath, e.cover_name, e.language, e.page_count, e.publication_date, e.isbn, e.edition_name, e.edition_notes, e.original, bl.title, bl.subtitle, bl.description, f.name, b.id
          ORDER BY e.id",
         book_id
     )
@@ -479,6 +482,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             isbn: r.isbn.flatten(),
             edition_name: r.edition_name.flatten(),
             edition_notes: r.edition_notes.flatten(),
+            original: r.original.flatten(),
             files: None,
             samples,
         });
