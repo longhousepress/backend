@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS editions (
     publication_date TEXT,
     page_count INTEGER,
     listed INTEGER DEFAULT 1 CHECK (listed IN (0,1)),
+    original INTEGER CHECK (original IN (0,1)),
     delisted_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT,

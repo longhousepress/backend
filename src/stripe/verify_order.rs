@@ -223,6 +223,7 @@ pub async fn get_downloadable_books_for_order(
                 isbn: None,
                 edition_name: None,
                 edition_notes: None,
+                original: None,
                 files: Some(files),
                 samples: None,
             };

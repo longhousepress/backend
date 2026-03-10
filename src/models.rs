@@ -56,6 +56,7 @@ pub struct Edition {
     pub isbn: Option<String>,
     pub edition_name: Option<String>,
     pub edition_notes: Option<String>,
+    pub original: Option<bool>,
     pub files: Option<Vec<File>>,
     pub samples: Option<Vec<File>>,
 }
