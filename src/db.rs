@@ -28,6 +28,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             e.id as \"id!: i64\",
             bl.title as \"title!: String\",
             bl.subtitle as \"subtitle: Option<String>\",
+            bl.short_description as \"short_description!: String\",
             GROUP_CONCAT(pl.name, ', ') as \"author!: String\",
             e.cover_filepath as \"cover!: String\",
             e.cover_name as \"cover_name: Option<String>\",
@@ -47,7 +48,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE e.listed = 1
-         GROUP BY e.id, bl.title, bl.subtitle, e.cover_filepath, e.cover_name, b.slug, b.id, b.original_language, b.original_publication_year, f.name, e.language, e.edition_notes, e.original
+         GROUP BY e.id, bl.title, bl.subtitle, bl.short_description, e.cover_filepath, e.cover_name, b.slug, b.id, b.original_language, b.original_publication_year, f.name, e.language, e.edition_notes, e.original
          ORDER BY b.id, e.id"
     )
     .fetch_all(db)
@@ -162,6 +163,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             cover: r.cover.clone(),
             cover_name: r.cover_name.flatten(),
             cover_artist,
+            short_description: r.short_description.clone(),
             description: None,
             categories: Vec::new(), // Will be populated per book after grouping
             format: r.format.clone(),
@@ -292,6 +294,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             bl.title as \"title!: String\",
             bl.subtitle as \"subtitle: Option<String>\",
             bl.description as \"description: Option<String>\",
+            bl.short_description as \"short_description!: String\",
             f.name as \"format!: String\",
             GROUP_CONCAT(pl.name, ', ') as \"author_name!: String\",
             (SELECT pl2.bio FROM book_contributors bc2
@@ -308,7 +311,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE b.id = ? AND e.listed = 1
-         GROUP BY e.id, e.cover_filepath, e.cover_name, e.language, e.page_count, e.publication_date, e.isbn, e.edition_name, e.edition_notes, e.original, bl.title, bl.subtitle, bl.description, f.name, b.id
+         GROUP BY e.id, e.cover_filepath, e.cover_name, e.language, e.page_count, e.publication_date, e.isbn, e.edition_name, e.edition_notes, e.original, bl.title, bl.subtitle, bl.description, bl.short_description, f.name, b.id
          ORDER BY e.id",
         book_id
     )
@@ -468,6 +471,7 @@ pub async fn get_book_by_slug(db: &SqlitePool, book_slug: &str) -> Result<Option
             cover: r.cover,
             cover_name: r.cover_name.flatten(),
             cover_artist,
+            short_description: r.short_description,
             description: r.description.flatten(),
             categories: categories.clone(),
             format: r.format,

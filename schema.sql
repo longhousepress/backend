@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS book_localizations (
     title TEXT NOT NULL,
     subtitle TEXT,
     description TEXT,
+    short_description TEXT NOT NULL,
     UNIQUE (book_id, language),
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
 ) STRICT;
@@ -244,6 +245,7 @@ SELECT
     bl.title,
     bl.subtitle,
     bl.description,
+    bl.short_description,
     f.name as format,
     -- Primary author (ordinal = 1 or lowest)
     (SELECT pl.name

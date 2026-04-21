@@ -43,6 +43,7 @@ pub struct Edition {
     pub cover: String,
     pub cover_name: Option<String>,
     pub cover_artist: Option<String>,
+    pub short_description: String,
     pub description: Option<String>,
     pub categories: Vec<String>,
     pub format: String,

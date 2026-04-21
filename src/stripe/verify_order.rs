@@ -131,6 +131,7 @@ pub async fn get_downloadable_books_for_order(
             e.id as \"edition_id!: i64\",
             b.id as \"book_id!: i64\",
             bl.title as \"title!: String\",
+            bl.short_description as \"short_description!: String\",
             GROUP_CONCAT(pl.name, ', ') as \"author_names!: String\",
             e.cover_filepath as \"cover!: String\",
             f.name as \"format!: String\",
@@ -146,7 +147,7 @@ pub async fn get_downloadable_books_for_order(
          LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
          LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
          WHERE oi.order_id = ?
-         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, e.cover_filepath, f.name, e.language, b.slug, b.original_language
+         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, bl.short_description, e.cover_filepath, f.name, e.language, b.slug, b.original_language
          ORDER BY b.id, e.id",
         order_id
     )
@@ -210,6 +211,7 @@ pub async fn get_downloadable_books_for_order(
                 cover: oi_row.cover.clone(),
                 cover_name: None,
                 cover_artist: None,
+                short_description: oi_row.short_description.clone(),
                 description: None,
                 categories: Vec::new(),
                 format: oi_row.format.clone(),
