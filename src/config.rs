@@ -15,4 +15,6 @@ pub struct Config {
     pub static_dir: String,
     pub public_dir: String,
     pub templates_dir: String,
+    pub submissions_from_email: String,
+    pub submissions_to_email: String,
 }

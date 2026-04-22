@@ -7,6 +7,7 @@ mod download;
 mod email;
 mod models;
 mod stripe;
+mod submissions;
 mod tokens;
 mod head;
 
@@ -57,6 +58,7 @@ async fn rocket() -> _ {
                 catalog::books,
                 download::download,
                 stripe::webhook::stripe_webhook,
+                submissions::submit,
             ],
         )
         .mount("/", FileServer::from(public_dir))

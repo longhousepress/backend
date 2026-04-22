@@ -26,3 +26,4 @@ percent-encoding = "2.3.2"
 figment = { version = "0.10.19", features = ["env", "toml"] }
 email_address = "0.2.9"
 resend-rs = "0.21.1"
+tempfile = "3"

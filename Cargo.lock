@@ -146,6 +146,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "subtle",
+ "tempfile",
  "tera",
  "tokio",
 ]
