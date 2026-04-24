@@ -1,4 +1,3 @@
-mod book_detail;
 mod catalog;
 mod config;
 mod cors;
@@ -54,7 +53,6 @@ async fn rocket() -> _ {
             routes![
                 stripe::verify_order::verify_order_endpoint,
                 stripe::checkout::checkout,
-                book_detail::book_detail,
                 catalog::books,
                 download::download,
                 stripe::webhook::stripe_webhook,
