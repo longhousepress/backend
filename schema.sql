@@ -178,9 +178,14 @@ CREATE TABLE IF NOT EXISTS categories (
 
 INSERT OR IGNORE INTO categories (name) VALUES
     ('Poetry'),
-    ('Fiction'),
     ('Sci-fi'),
-    ('Non-fiction');
+    ('Non-fiction'),
+    ('Adventure'),
+    ('Drama'),
+    ('Fantasy'),
+    ('Horror'),
+    ('Mystery'),
+    ('Shorts');
 
 CREATE TABLE IF NOT EXISTS book_categories (
     book_id INTEGER NOT NULL,
