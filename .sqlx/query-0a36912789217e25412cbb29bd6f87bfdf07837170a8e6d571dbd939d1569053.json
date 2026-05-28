@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT currency, price\n             FROM edition_prices\n             WHERE edition_id = ?",
+  "query": "SELECT currency, price FROM edition_prices WHERE edition_id = ?",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "a1240aada2c1fefcf5b2c478c0786045a85d3d2b3a95b27c281883d3d9c5b134"
+  "hash": "0a36912789217e25412cbb29bd6f87bfdf07837170a8e6d571dbd939d1569053"
 }
