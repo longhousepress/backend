@@ -105,8 +105,8 @@ pub async fn create_checkout_session(
     // Persist a pending order in the DB and get its number
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
-        success_url: config.stripe_success_url.clone(),
-        cancel_url: config.stripe_cancel_url.clone(),
+        success_url: format!("{}/success?session_id={{CHECKOUT_SESSION_ID}}", config.base_url),
+        cancel_url: format!("{}/failure", config.base_url),
         line_items: create_checkout_body(db.inner(), req, &req.currency).await?,
         customer_email: Some(req.email.clone()),
         client_reference_id: None,
