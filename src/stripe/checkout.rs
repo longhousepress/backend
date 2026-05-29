@@ -7,7 +7,7 @@ use sqlx::FromRow;
 use sqlx::sqlite::SqlitePool;
 
 use crate::config::Config;
-use crate::db::{get_edition_name, get_edition_price};
+use crate::db::{check_files_exist, get_edition_name, get_edition_price};
 
 #[post("/checkout", data = "<request>")]
 pub async fn checkout(
@@ -19,7 +19,7 @@ pub async fn checkout(
     let req = request.into_inner();
 
     // Validate the request before processing
-    if let Err(e) = validate_checkout_request(&req, db).await {
+    if let Err(e) = validate_checkout_request(&req, db, &config.static_dir).await {
         rocket::warn!("Invalid checkout request: {}", e);
         return Err(Status::BadRequest);
     }
@@ -33,7 +33,7 @@ pub async fn checkout(
     }
 }
 
-async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Result<()> {
+async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, static_dir: &str) -> Result<()> {
     // Validate email format
     if !EmailAddress::is_valid(&req.email) {
         return Err(anyhow::anyhow!("Invalid email address"));
@@ -91,6 +91,13 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool) -> Re
                     ));
                 }
             }
+        }
+
+        if !check_files_exist(item.edition_id, static_dir, db).await? {
+            return Err(anyhow::anyhow!(
+                "Edition {} is not fulfillable: one or more files are missing",
+                item.edition_id
+            ));
         }
     }
 

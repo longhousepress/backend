@@ -188,7 +188,7 @@ async fn fetch_contributor_roles(
     })
 }
 
-async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePool) -> Result<bool> {
+pub async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePool) -> Result<bool> {
     let rows = sqlx::query!(
         "SELECT files.file_path as \"file_path!: String\"
          FROM files
@@ -198,6 +198,10 @@ async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePool) -
     )
     .fetch_all(db)
     .await?;
+
+    if rows.is_empty() {
+        return Ok(false);
+    }
 
     for row in rows {
         let full_path = Path::new(static_dir).join(&row.file_path);
