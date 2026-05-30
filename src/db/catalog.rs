@@ -6,6 +6,12 @@ use sqlx::sqlite::SqlitePool;
 
 use crate::models::{Book, Contributor, Edition, File, FileFormat, Price};
 
+struct FileEntry {
+    file_path: String,
+    is_main: bool,
+    is_sample: bool,
+}
+
 pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> {
     let rows = sqlx::query!(
         "SELECT
@@ -49,20 +55,73 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
     .fetch_all(db)
     .await?;
 
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Fetch all supporting data in parallel — one bulk query per concern, no per-edition loops.
+    let (
+        edition_contributors_map,
+        edition_prices_map,
+        contributor_roles_map,
+        files_by_edition,
+        book_categories_map,
+        book_contributors_map,
+    ) = tokio::try_join!(
+        fetch_all_edition_contributors(db),
+        fetch_all_edition_prices(db),
+        fetch_all_contributor_roles(db),
+        fetch_all_files(db),
+        fetch_all_book_categories(db),
+        fetch_all_book_contributors(db),
+    )?;
+
     let mut books_map: HashMap<i64, Book> = HashMap::new();
 
     for r in rows {
-        let edition_contributors =
-            fetch_edition_contributors(r.id, &r.language, db).await?;
-        let prices = fetch_edition_prices(r.id, db).await?;
-        let (translator_name, cover_artist, illustrator, introduction_writer) =
-            fetch_contributor_roles(r.id, db).await?;
+        // Validate that all required files exist on disk.
+        let has_valid_files = files_by_edition
+            .get(&r.id)
+            .map(|fs| {
+                let main_files: Vec<_> = fs.iter().filter(|f| f.is_main).collect();
+                if main_files.is_empty() {
+                    return false;
+                }
+                main_files.iter().all(|f| {
+                    let full_path = Path::new(static_dir).join(&f.file_path);
+                    if !full_path.exists() {
+                        eprintln!("Missing file for edition {}: {}", r.id, full_path.display());
+                        false
+                    } else {
+                        true
+                    }
+                })
+            })
+            .unwrap_or(false);
 
-        if !check_files_exist(r.id, static_dir, db).await? {
+        if !has_valid_files {
             continue;
         }
 
-        let samples = fetch_edition_samples(r.id, db).await?;
+        let samples: Vec<File> = files_by_edition
+            .get(&r.id)
+            .map(|fs| {
+                fs.iter()
+                    .filter(|f| f.is_sample)
+                    .map(|f| File {
+                        format: FileFormat::Sample,
+                        path: f.file_path.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let samples = if samples.is_empty() { None } else { Some(samples) };
+
+        let prices = edition_prices_map.get(&r.id).cloned().unwrap_or_default();
+        let contributors = edition_contributors_map.get(&r.id).cloned().unwrap_or_default();
+        let (translator_name, cover_artist, illustrator, introduction_writer) =
+            contributor_roles_map.get(&r.id).cloned().unwrap_or((None, None, None, None));
+        let categories = book_categories_map.get(&r.book_id).cloned().unwrap_or_default();
 
         let edition = Edition {
             id: r.id,
@@ -75,14 +134,14 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             cover_artist,
             short_description: r.short_description.clone(),
             description: r.description.flatten(),
-            categories: Vec::new(),
+            categories,
             format: r.format.clone(),
             language: Some(r.language.clone()),
             page_count: r.page_count.flatten(),
             translator_name,
             illustrator,
             introduction_writer,
-            contributors: edition_contributors,
+            contributors,
             publication_date: r.publication_date.flatten(),
             isbn: r.isbn.flatten(),
             edition_name: r.edition_name.flatten(),
@@ -100,92 +159,172 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
             book_slug: r.book_slug.clone(),
             original_language: r.original_language.clone(),
             original_publication_year: r.original_publication_year.flatten(),
-            contributors: Vec::new(),
+            // Use the first edition's language for book-level contributor localisation,
+            // matching the previous behaviour.
+            contributors: book_contributors_map
+                .get(&(r.book_id, r.language.clone()))
+                .cloned()
+                .unwrap_or_default(),
             editions: Vec::new(),
         });
 
         book.editions.push(edition);
     }
 
-    enrich_books(&mut books_map, db).await?;
-
-    let mut books: Vec<Book> = books_map.into_iter().map(|(_, book)| book).collect();
+    let mut books: Vec<Book> = books_map.into_values().collect();
     books.sort_by_key(|b| b.id);
     Ok(books)
 }
 
-async fn fetch_edition_contributors(
-    edition_id: i64,
-    language: &str,
-    db: &SqlitePool,
-) -> Result<Vec<Contributor>> {
+async fn fetch_all_edition_contributors(db: &SqlitePool) -> Result<HashMap<i64, Vec<Contributor>>> {
     let rows = sqlx::query!(
-        "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, ec.ordinal
+        "SELECT ec.edition_id as \"edition_id!: i64\",
+                pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year
          FROM edition_contributors ec
-         INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = ?
+         INNER JOIN editions e ON ec.edition_id = e.id AND e.listed = 1
+         INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = e.language
          INNER JOIN roles r ON ec.role_id = r.id
          INNER JOIN persons p ON ec.person_id = p.id
-         WHERE ec.edition_id = ?
-         ORDER BY ec.ordinal ASC NULLS LAST",
-        language,
-        edition_id
+         ORDER BY ec.edition_id, ec.ordinal ASC NULLS LAST"
     )
     .fetch_all(db)
     .await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|c| Contributor {
-            name: c.name,
-            slug: c.slug,
-            role: c.role,
-            bio: c.bio,
-            birth_year: c.birth_year,
-            death_year: c.death_year,
-        })
-        .collect())
+    let mut map: HashMap<i64, Vec<Contributor>> = HashMap::new();
+    for r in rows {
+        map.entry(r.edition_id).or_default().push(Contributor {
+            name: r.name,
+            slug: r.slug,
+            role: r.role,
+            bio: r.bio,
+            birth_year: r.birth_year,
+            death_year: r.death_year,
+        });
+    }
+    Ok(map)
 }
 
-async fn fetch_edition_prices(edition_id: i64, db: &SqlitePool) -> Result<Vec<Price>> {
+async fn fetch_all_edition_prices(db: &SqlitePool) -> Result<HashMap<i64, Vec<Price>>> {
     let rows = sqlx::query!(
-        "SELECT currency, price FROM edition_prices WHERE edition_id = ?",
-        edition_id
+        "SELECT ep.edition_id as \"edition_id!: i64\", ep.currency, ep.price
+         FROM edition_prices ep
+         INNER JOIN editions e ON ep.edition_id = e.id AND e.listed = 1"
     )
     .fetch_all(db)
     .await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|p| Price {
-            currency: p.currency,
-            amount: p.price,
-        })
-        .collect())
+    let mut map: HashMap<i64, Vec<Price>> = HashMap::new();
+    for r in rows {
+        map.entry(r.edition_id).or_default().push(Price {
+            currency: r.currency,
+            amount: r.price,
+        });
+    }
+    Ok(map)
 }
 
-async fn fetch_contributor_roles(
-    edition_id: i64,
+async fn fetch_all_contributor_roles(
     db: &SqlitePool,
-) -> Result<(Option<String>, Option<String>, Option<String>, Option<String>)> {
-    let row = sqlx::query!(
-        "SELECT translator_name, cover_artist_name, illustrator_name, introduction_writer_name
-         FROM edition_contributor_roles
-         WHERE edition_id = ?",
-        edition_id
+) -> Result<HashMap<i64, (Option<String>, Option<String>, Option<String>, Option<String>)>> {
+    let rows = sqlx::query!(
+        "SELECT ecr.edition_id as \"edition_id!: i64\",
+                ecr.translator_name, ecr.cover_artist_name,
+                ecr.illustrator_name, ecr.introduction_writer_name
+         FROM edition_contributor_roles ecr
+         INNER JOIN editions e ON ecr.edition_id = e.id AND e.listed = 1"
     )
-    .fetch_optional(db)
+    .fetch_all(db)
     .await?;
 
-    Ok(if let Some(r) = row {
-        (
-            r.translator_name,
-            r.cover_artist_name,
-            r.illustrator_name,
-            r.introduction_writer_name,
-        )
-    } else {
-        (None, None, None, None)
-    })
+    let mut map = HashMap::new();
+    for r in rows {
+        map.insert(
+            r.edition_id,
+            (
+                r.translator_name,
+                r.cover_artist_name,
+                r.illustrator_name,
+                r.introduction_writer_name,
+            ),
+        );
+    }
+    Ok(map)
+}
+
+async fn fetch_all_files(db: &SqlitePool) -> Result<HashMap<i64, Vec<FileEntry>>> {
+    let rows = sqlx::query!(
+        "SELECT f.edition_id as \"edition_id!: i64\",
+                f.file_path as \"file_path!: String\",
+                ff.id as \"format_id!: i64\",
+                ff.name as \"format_name!: String\"
+         FROM files f
+         INNER JOIN file_formats ff ON f.file_format_id = ff.id
+         INNER JOIN editions e ON f.edition_id = e.id AND e.listed = 1
+         WHERE ff.id IN (1, 2, 3, 4) OR ff.name = 'sample'"
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut map: HashMap<i64, Vec<FileEntry>> = HashMap::new();
+    for r in rows {
+        map.entry(r.edition_id).or_default().push(FileEntry {
+            file_path: r.file_path,
+            is_main: r.format_id <= 4,
+            is_sample: r.format_name == "sample",
+        });
+    }
+    Ok(map)
+}
+
+async fn fetch_all_book_categories(db: &SqlitePool) -> Result<HashMap<i64, Vec<String>>> {
+    let rows = sqlx::query!(
+        "SELECT DISTINCT bc.book_id as \"book_id!: i64\", c.name as \"name!: String\"
+         FROM book_categories bc
+         INNER JOIN categories c ON c.id = bc.category_id
+         INNER JOIN editions e ON e.book_id = bc.book_id AND e.listed = 1"
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+    for r in rows {
+        map.entry(r.book_id).or_default().push(r.name);
+    }
+    Ok(map)
+}
+
+// Keyed by (book_id, language) so each book uses the localisation of its first edition,
+// matching the previous behaviour in enrich_books.
+async fn fetch_all_book_contributors(
+    db: &SqlitePool,
+) -> Result<HashMap<(i64, String), Vec<Contributor>>> {
+    let rows = sqlx::query!(
+        "SELECT DISTINCT bc.book_id as \"book_id!: i64\",
+                el.language as \"language!: String\",
+                pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
+         FROM book_contributors bc
+         INNER JOIN (SELECT DISTINCT book_id, language FROM editions WHERE listed = 1) el
+             ON el.book_id = bc.book_id
+         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = el.language
+         INNER JOIN roles r ON bc.role_id = r.id
+         INNER JOIN persons p ON bc.person_id = p.id
+         ORDER BY bc.book_id, bc.ordinal ASC NULLS LAST"
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut map: HashMap<(i64, String), Vec<Contributor>> = HashMap::new();
+    for r in rows {
+        map.entry((r.book_id, r.language)).or_default().push(Contributor {
+            name: r.name,
+            slug: r.slug,
+            role: r.role,
+            bio: r.bio,
+            birth_year: r.birth_year,
+            death_year: r.death_year,
+        });
+    }
+    Ok(map)
 }
 
 pub async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePool) -> Result<bool> {
@@ -217,79 +356,4 @@ pub async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePoo
     Ok(true)
 }
 
-async fn fetch_edition_samples(edition_id: i64, db: &SqlitePool) -> Result<Option<Vec<File>>> {
-    let rows = sqlx::query!(
-        "SELECT files.file_path as \"file_path!: String\"
-         FROM files
-         INNER JOIN file_formats ff ON files.file_format_id = ff.id
-         WHERE files.edition_id = ? AND ff.name = 'sample'",
-        edition_id
-    )
-    .fetch_all(db)
-    .await?;
 
-    if rows.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(
-        rows.into_iter()
-            .map(|r| File {
-                format: FileFormat::Sample,
-                path: r.file_path,
-            })
-            .collect(),
-    ))
-}
-
-async fn enrich_books(books_map: &mut HashMap<i64, Book>, db: &SqlitePool) -> Result<()> {
-    for (book_id, book) in books_map.iter_mut() {
-        let language = book.editions[0]
-            .language
-            .clone()
-            .unwrap_or_else(|| "eng".to_string());
-
-        let cat_rows = sqlx::query!(
-            "SELECT c.name
-             FROM categories c
-             INNER JOIN book_categories bc ON c.id = bc.category_id
-             WHERE bc.book_id = ?",
-            book_id
-        )
-        .fetch_all(db)
-        .await?;
-
-        let categories: Vec<String> = cat_rows.into_iter().map(|c| c.name).collect();
-
-        let contributor_rows = sqlx::query!(
-            "SELECT pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal
-             FROM book_contributors bc
-             INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = ?
-             INNER JOIN roles r ON bc.role_id = r.id
-             INNER JOIN persons p ON bc.person_id = p.id
-             WHERE bc.book_id = ?
-             ORDER BY bc.ordinal ASC NULLS LAST",
-            language,
-            book_id
-        )
-        .fetch_all(db)
-        .await?;
-
-        book.contributors = contributor_rows
-            .into_iter()
-            .map(|c| Contributor {
-                name: c.name,
-                slug: c.slug,
-                role: c.role,
-                bio: c.bio,
-                birth_year: c.birth_year,
-                death_year: c.death_year,
-            })
-            .collect();
-
-        for edition in &mut book.editions {
-            edition.categories = categories.clone();
-        }
-    }
-    Ok(())
-}

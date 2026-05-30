@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ec.edition_id as \"edition_id!: i64\",\n                pl.name, p.slug, r.name as role, pl.bio, p.birth_year, p.death_year\n         FROM edition_contributors ec\n         INNER JOIN editions e ON ec.edition_id = e.id AND e.listed = 1\n         INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = e.language\n         INNER JOIN roles r ON ec.role_id = r.id\n         INNER JOIN persons p ON ec.person_id = p.id\n         ORDER BY ec.edition_id, ec.ordinal ASC NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "name": "edition_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "bio",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "birth_year",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "death_year",
+        "ordinal": 6,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "79348a9845f57ed34bf98c3e330e165c39d311b842d182683d7bcf5f80a356a6"
+}
