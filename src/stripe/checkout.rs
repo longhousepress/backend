@@ -7,7 +7,7 @@ use sqlx::FromRow;
 use sqlx::sqlite::SqlitePool;
 
 use crate::config::Config;
-use crate::db::{check_files_exist, get_edition_name, get_edition_price};
+use crate::db::check_files_exist;
 
 #[post("/checkout", data = "<request>")]
 pub async fn checkout(
@@ -15,16 +15,17 @@ pub async fn checkout(
     db: &State<SqlitePool>,
     request: Json<CheckoutRequest>,
 ) -> Result<Json<CheckoutSession>, Status> {
-    // take ownership of the parsed request body
     let req = request.into_inner();
 
-    // Validate the request before processing
-    if let Err(e) = validate_checkout_request(&req, db, &config.static_dir).await {
-        rocket::warn!("Invalid checkout request: {}", e);
-        return Err(Status::BadRequest);
-    }
+    let resolved = match validate_checkout_request(&req, db, &config.static_dir).await {
+        Ok(r) => r,
+        Err(e) => {
+            rocket::warn!("Invalid checkout request: {}", e);
+            return Err(Status::BadRequest);
+        }
+    };
 
-    match create_checkout_session(config, db, &req).await {
+    match create_checkout_session(config, db, &req, resolved).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
             rocket::error!("Error creating checkout session: {}", e);
@@ -33,28 +34,32 @@ pub async fn checkout(
     }
 }
 
-async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, static_dir: &str) -> Result<()> {
-    // Validate email format
+pub struct ResolvedCheckoutItem {
+    pub edition_id: i64,
+    pub name: String,
+    pub unit_amount: u32,
+    pub quantity: u8,
+}
+
+async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, static_dir: &str) -> Result<Vec<ResolvedCheckoutItem>> {
     if !EmailAddress::is_valid(&req.email) {
         return Err(anyhow::anyhow!("Invalid email address"));
     }
 
-    // Validate items exist and are not empty
     if req.items.is_empty() {
         return Err(anyhow::anyhow!("Checkout must contain at least one item"));
     }
 
-    // Limit total number of line items (prevent DoS)
     if req.items.len() > 50 {
         return Err(anyhow::anyhow!(
             "Checkout cannot contain more than 50 items"
         ));
     }
 
-    // Validate each item
     let currency_str = req.currency.as_str();
+    let mut resolved = Vec::with_capacity(req.items.len());
+
     for item in &req.items {
-        // Validate quantity is not zero and not too high
         if item.quantity == 0 {
             return Err(anyhow::anyhow!("Item quantity must be at least 1"));
         }
@@ -62,11 +67,11 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
             return Err(anyhow::anyhow!("Item quantity cannot exceed 100"));
         }
 
-        // Check that the edition exists, is listed, and has a price for the requested currency
         let result = sqlx::query!(
-            "SELECT e.listed, ep.price
+            "SELECT e.listed, ep.price, bl.title
              FROM editions e
              LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?
+             INNER JOIN book_localizations bl ON bl.book_id = e.book_id AND bl.language = e.language
              WHERE e.id = ?",
             currency_str,
             item.edition_id
@@ -74,7 +79,7 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
         .fetch_optional(db)
         .await?;
 
-        match result {
+        let (title, price) = match result {
             None => return Err(anyhow::anyhow!("Edition {} not found", item.edition_id)),
             Some(row) => {
                 if row.listed != Some(1) {
@@ -83,15 +88,14 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
                         item.edition_id
                     ));
                 }
-                if row.price.is_none() {
-                    return Err(anyhow::anyhow!(
-                        "Edition {} does not have a price for currency {}",
-                        item.edition_id,
-                        currency_str
-                    ));
-                }
+                let price = row.price.ok_or_else(|| anyhow::anyhow!(
+                    "Edition {} does not have a price for currency {}",
+                    item.edition_id,
+                    currency_str
+                ))?;
+                (row.title, price)
             }
-        }
+        };
 
         if !check_files_exist(item.edition_id, static_dir, db).await? {
             return Err(anyhow::anyhow!(
@@ -99,22 +103,29 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
                 item.edition_id
             ));
         }
+
+        resolved.push(ResolvedCheckoutItem {
+            edition_id: item.edition_id,
+            name: title,
+            unit_amount: price as u32,
+            quantity: item.quantity,
+        });
     }
 
-    Ok(())
+    Ok(resolved)
 }
 
 pub async fn create_checkout_session(
     config: &State<Config>,
     db: &State<SqlitePool>,
     req: &CheckoutRequest,
+    resolved: Vec<ResolvedCheckoutItem>,
 ) -> Result<CheckoutSession> {
-    // Persist a pending order in the DB and get its number
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
         success_url: format!("{}/success?session_id={{CHECKOUT_SESSION_ID}}", config.base_url),
         cancel_url: format!("{}/failure", config.base_url),
-        line_items: create_checkout_body(db.inner(), req, &req.currency).await?,
+        line_items: create_checkout_body(&resolved, &req.currency)?,
         customer_email: Some(req.email.clone()),
         client_reference_id: None,
         payment_intent_data: None,
@@ -198,32 +209,26 @@ async fn expire_stripe_session(config: &Config, id: &str, client: Client) -> Res
     Ok(())
 }
 
-pub async fn create_checkout_body(
-    db: &SqlitePool,
-    req: &CheckoutRequest,
+pub fn create_checkout_body(
+    resolved: &[ResolvedCheckoutItem],
     currency: &Currency,
 ) -> Result<Vec<StripeLineItem>> {
-    let mut items: Vec<StripeLineItem> = Vec::with_capacity(req.items.len());
-    for item in &req.items {
-        let name = get_edition_name(item.edition_id, db).await?;
-        let unit_amount = get_edition_price(item.edition_id, currency.as_str(), db).await?;
-
-        // Check for potential overflow when calculating line item total
+    let mut items: Vec<StripeLineItem> = Vec::with_capacity(resolved.len());
+    for item in resolved {
         let quantity_u64 = item.quantity as u64;
-        let unit_amount_u64 = unit_amount as u64;
+        let unit_amount_u64 = item.unit_amount as u64;
         quantity_u64.checked_mul(unit_amount_u64).ok_or_else(|| {
             anyhow::anyhow!("Price calculation overflow for edition {}", item.edition_id)
         })?;
 
-        let final_item = StripeLineItem {
+        items.push(StripeLineItem {
             quantity: item.quantity,
             price_data: StripePriceData {
                 currency: currency.clone(),
-                product_data: StripeProductData { name },
-                unit_amount,
+                product_data: StripeProductData { name: item.name.clone() },
+                unit_amount: item.unit_amount,
             },
-        };
-        items.push(final_item);
+        });
     }
     Ok(items)
 }
