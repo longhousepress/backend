@@ -340,13 +340,13 @@ impl CheckoutRequest {
         // Start a transaction so all operations are atomic
         let mut tx = pool.begin().await?;
 
-        // Compute total and validate edition ids within the transaction
+        // Fetch prices and compute total within the transaction
         let currency = currency.unwrap_or("GBP");
         let mut total_amount: i64 = 0;
+        let mut prices: Vec<i64> = Vec::with_capacity(self.items.len());
         for item in &self.items {
             let edition_id: i64 = item.edition_id;
 
-            // Read the current price for this edition using the transaction
             let row = sqlx::query!(
                 "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
                 edition_id,
@@ -355,13 +355,12 @@ impl CheckoutRequest {
             .fetch_one(&mut *tx)
             .await?;
             let price: i64 = row.price;
+            prices.push(price);
 
-            // Use checked multiplication to prevent overflow
             let line_total = price
                 .checked_mul(item.quantity as i64)
                 .ok_or_else(|| anyhow::anyhow!("Price overflow for edition {}", edition_id))?;
 
-            // Use checked addition to prevent overflow
             total_amount = total_amount
                 .checked_add(line_total)
                 .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
@@ -380,19 +379,9 @@ impl CheckoutRequest {
 
         let order_id = res.last_insert_rowid();
 
-        // Insert order_items (capture price_at_purchase inside the same transaction)
-        for item in &self.items {
+        // Insert order_items using the prices already fetched above
+        for (item, price_at_purchase) in self.items.iter().zip(prices) {
             let edition_id: i64 = item.edition_id;
-
-            // capture the price at purchase time again to ensure consistency
-            let row = sqlx::query!(
-                "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
-                edition_id,
-                currency
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            let price_at_purchase: i64 = row.price;
 
             sqlx::query(
                 "INSERT INTO order_items (order_id, edition_id, quantity, price_at_purchase, currency_at_purchase) VALUES (?, ?, ?, ?, ?)",
