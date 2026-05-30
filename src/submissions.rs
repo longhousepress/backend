@@ -144,7 +144,16 @@ pub async fn submit(
     let filename = form
         .file
         .raw_name()
-        .map(|f| f.dangerous_unsafe_unsanitized_raw().to_string())
+        .map(|f| {
+            f.dangerous_unsafe_unsanitized_raw()
+                .as_str()
+                .chars()
+                .map(|c| if c == ' ' { '_' } else { c })
+                .filter(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_'))
+                .take(200)
+                .collect::<String>()
+        })
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "submission".to_string());
 
     // Read file bytes using a temporary file
