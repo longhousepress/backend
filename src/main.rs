@@ -9,7 +9,6 @@ mod stripe;
 mod submissions;
 mod tera;
 mod tokens;
-mod head;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
@@ -27,6 +26,11 @@ use crate::config::{Config, SystemdCreds};
 use crate::cors::setup_cors;
 use crate::db::load_db;
 use crate::tera::load_tera;
+
+#[head("/")]
+fn head() -> rocket::http::Status {
+    rocket::http::Status::Ok
+}
 
 #[macro_use]
 extern crate rocket;
@@ -58,7 +62,7 @@ async fn rocket() -> _ {
         .manage(http_client)
         .attach(AdHoc::config::<Config>())
         .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
-        .mount("/", routes![head::head])
+        .mount("/", routes![head])
         .mount(
             "/api",
             routes![
