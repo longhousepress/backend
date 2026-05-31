@@ -50,10 +50,12 @@ async fn rocket() -> _ {
     let tera = load_tera(&config).expect("Failed to load templates");
 
     let public_dir = config.public_dir.clone();
+    let http_client = reqwest::Client::new();
 
     rocket::custom(figment)
         .manage(tera)
         .manage(db)
+        .manage(http_client)
         .attach(AdHoc::config::<Config>())
         .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
         .mount("/", routes![head::head])

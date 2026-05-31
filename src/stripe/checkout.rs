@@ -13,6 +13,7 @@ use crate::models::Currency;
 pub async fn checkout(
     config: &State<Config>,
     db: &State<SqlitePool>,
+    http_client: &State<Client>,
     request: Json<CheckoutRequest>,
 ) -> Result<Json<CheckoutSession>, Status> {
     let req = request.into_inner();
@@ -25,7 +26,7 @@ pub async fn checkout(
         }
     };
 
-    match create_checkout_session(config, db, &req, resolved).await {
+    match create_checkout_session(config, db, http_client, &req, resolved).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
             rocket::error!("Error creating checkout session: {}", e);
@@ -118,6 +119,7 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
 pub async fn create_checkout_session(
     config: &State<Config>,
     db: &State<SqlitePool>,
+    http_client: &State<Client>,
     req: &CheckoutRequest,
     resolved: Vec<ResolvedCheckoutItem>,
 ) -> Result<CheckoutSession> {
@@ -135,8 +137,7 @@ pub async fn create_checkout_session(
     let encoded = serde_qs::to_string(&checkout)?;
 
     // Send to Stripe
-    let client = reqwest::Client::new();
-    let response = client
+    let response = http_client
         .post("https://api.stripe.com/v1/checkout/sessions")
         .header("Authorization", format!("Bearer {}", config.stripe_api_key))
         .header("Content-Type", "application/x-www-form-urlencoded")
@@ -174,7 +175,7 @@ pub async fn create_checkout_session(
                 stripe_session_id,
                 e
             );
-            if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id, client).await {
+            if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id, http_client).await {
                 rocket::warn!(
                     "Failed to expire dangling Stripe session {}: {}",
                     stripe_session_id,
@@ -186,7 +187,7 @@ pub async fn create_checkout_session(
     }
 }
 
-async fn expire_stripe_session(config: &Config, id: &str, client: Client) -> Result<()> {
+async fn expire_stripe_session(config: &Config, id: &str, client: &Client) -> Result<()> {
     // Send to Stripe
     let response = client
         .post(format!(
