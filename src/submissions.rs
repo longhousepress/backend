@@ -137,11 +137,10 @@ pub async fn submit(
     {
         rocket::error!("send_submission_email failed: {:?}", e);
         return Redirect::to(format!(
-            "{}/submissions/error?reason={}",
-            config.base_url,
+            "/submissions/error?reason={}",
             percent_encoding::utf8_percent_encode("Failed to send submission — please try again", percent_encoding::NON_ALPHANUMERIC)
         ));
     }
 
-    Redirect::to(format!("{}/submissions/success", config.base_url))
+    Redirect::to("/submissions/success")
 }
