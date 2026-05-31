@@ -1,8 +1,6 @@
 use anyhow::Result;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 
-const DB_SCHEMA: &str = include_str!("../../schema.sql");
-
 pub async fn load_db(db_path: &str) -> Result<SqlitePool> {
     let opts = SqliteConnectOptions::new()
         .filename(db_path)
@@ -12,7 +10,7 @@ pub async fn load_db(db_path: &str) -> Result<SqlitePool> {
 
     let db = SqlitePool::connect_with(opts).await?;
 
-    sqlx::query(DB_SCHEMA).execute(&db).await?;
+    sqlx::migrate!().run(&db).await?;
 
     Ok(db)
 }

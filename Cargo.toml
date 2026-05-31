@@ -8,7 +8,7 @@ license = "blessing"
 anyhow = "1.0.100"
 rocket = { version = "0.5.1", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
-sqlx = { version = "0.8.6", features = [ "runtime-tokio", "tls-native-tls", "sqlite", "chrono" ] }
+sqlx = { version = "0.8.6", features = [ "runtime-tokio", "tls-native-tls", "sqlite", "chrono", "migrate" ] }
 tokio = { version = "1.49.0", features = ["full"] }
 serde_qs = "0.15.0"
 reqwest = { version = "0.13.1" }

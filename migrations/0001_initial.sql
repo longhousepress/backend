@@ -231,7 +231,6 @@ CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_edition_id ON order_items(edition_id);
 
 -- Helpful views for common queries
--- View: Editions with localized content (no fallbacks)
 CREATE VIEW IF NOT EXISTS editions_catalog AS
 SELECT
     e.id as edition_id,
@@ -252,7 +251,6 @@ SELECT
     bl.description,
     bl.short_description,
     f.name as format,
-    -- Primary author (ordinal = 1 or lowest)
     (SELECT pl.name
      FROM book_contributors bc
      JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
@@ -269,7 +267,6 @@ SELECT
      ORDER BY bc.ordinal ASC NULLS LAST
      LIMIT 1
     ) as author_bio,
-    -- Translator if exists
     (SELECT pl.name
      FROM edition_contributors ec
      JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = e.language
@@ -283,8 +280,6 @@ JOIN books b ON e.book_id = b.id
 JOIN formats f ON e.format_id = f.id
 JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language;
 
--- View: Edition contributors pivoted by role
--- Consolidates translator, cover artist, illustrator, and introduction writer into one query
 CREATE VIEW IF NOT EXISTS edition_contributor_roles AS
 SELECT
     ec.edition_id,
