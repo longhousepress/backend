@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT files.edition_id as \"edition_id!: i64\", ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"\n         FROM files\n         INNER JOIN file_formats ff ON files.file_format_id = ff.id\n         WHERE files.edition_id IN (\n             SELECT DISTINCT oi.edition_id FROM order_items oi WHERE oi.order_id = ?\n         ) AND ff.name != 'sample'",
+  "describe": {
+    "columns": [
+      {
+        "name": "edition_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "format_name!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_path!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fedda9146cc109f06d1510785fc2b002d7ef7cd37844637f839ee243076b5222"
+}

@@ -147,18 +147,28 @@ pub async fn get_downloadable_books_for_order(
         return Ok(Vec::new());
     }
 
+    let file_rows = sqlx::query!(
+        "SELECT files.edition_id as \"edition_id!: i64\", ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
+         FROM files
+         INNER JOIN file_formats ff ON files.file_format_id = ff.id
+         WHERE files.edition_id IN (
+             SELECT DISTINCT oi.edition_id FROM order_items oi WHERE oi.order_id = ?
+         ) AND ff.name != 'sample'",
+        order_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    use std::collections::HashMap;
+    let mut files_by_edition: HashMap<i64, Vec<_>> = HashMap::new();
+    for fr in &file_rows {
+        files_by_edition.entry(fr.edition_id).or_default().push(fr);
+    }
+
     let mut books: Vec<Book> = Vec::new();
 
     for oi_row in order_item_rows {
-        let file_rows = sqlx::query!(
-            "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
-             FROM files
-             INNER JOIN file_formats ff ON files.file_format_id = ff.id
-             WHERE files.edition_id = ? AND ff.name != 'sample'",
-            oi_row.edition_id
-        )
-        .fetch_all(db)
-        .await?;
+        let file_rows = files_by_edition.get(&oi_row.edition_id).map(|v| v.as_slice()).unwrap_or_default();
 
         for _ in 0..oi_row.quantity {
             let files: Vec<File> = file_rows
