@@ -1,7 +1,6 @@
 use crate::config::Config;
-use crate::models::{Book, Edition, File, FileFormat};
-use crate::tokens::mint;
-use anyhow::Result as AnyhowResult;
+use crate::db::{find_order_by_session_id, get_downloadable_books_for_order};
+use crate::models::Book;
 use rocket::Request;
 use rocket::State;
 use rocket::http::Status;
@@ -41,20 +40,20 @@ pub async fn verify_order_endpoint(
     session_id: String,
 ) -> std::result::Result<Json<SuccessReturn>, ErrorResponse> {
     // Look up the order by Stripe session id
-    let row = sqlx::query!(
-        "SELECT id, paid, paid_at, email FROM orders WHERE stripe_session_id = ?",
-        session_id
-    )
-    .fetch_one(db.inner())
-    .await
-    .map_err(|e| {
-        rocket::error!(
-            "Database error looking up order by session {}: {:?}",
-            session_id,
-            e
-        );
-        ErrorResponse::Status(Status::InternalServerError)
-    })?;
+    let row = find_order_by_session_id(db.inner(), &session_id)
+        .await
+        .map_err(|e| {
+            rocket::error!(
+                "Database error looking up order by session {}: {:?}",
+                session_id,
+                e
+            );
+            ErrorResponse::Status(Status::InternalServerError)
+        })?
+        .ok_or_else(|| {
+            rocket::warn!("Order not found for session {}", session_id);
+            ErrorResponse::Status(Status::NotFound)
+        })?;
 
     // Extract order id early so we can include it in the Gone response header if needed
     let order_id = match row.id {
@@ -112,141 +111,6 @@ pub async fn verify_order_endpoint(
     };
 
     Ok(Json(out))
-}
-
-/// Retrieve downloadable books for a given order.
-/// Queries order_items directly to get all editions purchased, then builds
-/// the downloadable metadata with minted tokens for each file.
-/// Respects quantity - if quantity > 1, returns multiple Book objects each with unique tokens.
-pub async fn get_downloadable_books_for_order(
-    config: &Config,
-    db: &SqlitePool,
-    order_id: i64,
-) -> AnyhowResult<Vec<Book>> {
-    // Query all order items with their quantities and edition info
-    // Using GROUP_CONCAT to handle multiple authors per book
-    let order_item_rows = sqlx::query!(
-        "SELECT
-            oi.quantity as \"quantity!: i64\",
-            e.id as \"edition_id!: i64\",
-            b.id as \"book_id!: i64\",
-            bl.title as \"title!: String\",
-            bl.short_description as \"short_description!: String\",
-            GROUP_CONCAT(pl.name, ', ') as \"author_names!: String\",
-            e.cover_filepath as \"cover!: String\",
-            f.name as \"format!: String\",
-            e.language as \"language!: String\",
-            b.original_language as \"original_language!: String\",
-            b.slug as \"slug!: String\"
-         FROM order_items oi
-         INNER JOIN editions e ON oi.edition_id = e.id
-         INNER JOIN books b ON e.book_id = b.id
-         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
-         INNER JOIN formats f ON e.format_id = f.id
-         LEFT JOIN book_contributors bc ON bc.book_id = b.id
-         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
-         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
-         WHERE oi.order_id = ?
-         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, bl.short_description, e.cover_filepath, f.name, e.language, b.slug, b.original_language
-         ORDER BY b.id, e.id",
-        order_id
-    )
-    .fetch_all(db)
-    .await?;
-
-    if order_item_rows.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Each order_item with quantity N gets expanded into N separate books
-    // This ensures each "copy" gets unique download tokens
-    let mut books: Vec<Book> = Vec::new();
-
-    for oi_row in order_item_rows {
-        let file_rows = sqlx::query!(
-            "SELECT ff.name as \"format_name!: String\", files.file_path as \"file_path!: String\"
-             FROM files
-             INNER JOIN file_formats ff ON files.file_format_id = ff.id
-             WHERE files.edition_id = ? AND ff.name != 'sample'",
-            oi_row.edition_id
-        )
-        .fetch_all(db)
-        .await?;
-
-        for _ in 0..oi_row.quantity {
-            let files: Vec<File> = file_rows
-                .iter()
-                .filter_map(|fr| {
-                    let fmt = match fr.format_name.as_str() {
-                        "epub" => FileFormat::Epub,
-                        "kepub" => FileFormat::Kepub,
-                        "azw3" => FileFormat::Azw3,
-                        "pdf" => FileFormat::Pdf,
-                        "cover" => FileFormat::Cover,
-                        other => {
-                            rocket::warn!(
-                                "Unknown file format '{}' for edition {}, skipping",
-                                other,
-                                oi_row.edition_id
-                            );
-                            return None;
-                        }
-                    };
-
-                    let token = mint(&fr.file_path, &config.token_key);
-                    let url = format!("/api/download/{}", token);
-                    Some(File {
-                        format: fmt,
-                        path: url,
-                    })
-                })
-                .collect();
-
-            let edition = Edition {
-                id: oi_row.edition_id,
-                title: oi_row.title.clone(),
-                author_name: oi_row.author_names.clone(),
-                author_bio: None,
-                prices: Vec::new(),
-                cover: oi_row.cover.clone(),
-                cover_name: None,
-                cover_artist: None,
-                short_description: oi_row.short_description.clone(),
-                description: None,
-                categories: Vec::new(),
-                format: oi_row.format.clone(),
-                language: Some(oi_row.language.clone()),
-                page_count: None,
-                translator_name: None,
-                illustrator: None,
-                introduction_writer: None,
-                contributors: Vec::new(),
-                publication_date: None,
-                isbn: None,
-                edition_name: None,
-                edition_notes: None,
-                original: None,
-                files: Some(files),
-                samples: None,
-            };
-
-            let book = Book {
-                id: oi_row.book_id,
-                title: oi_row.title.clone(),
-                subtitle: None,
-                author: oi_row.author_names.clone(),
-                book_slug: oi_row.slug.clone(),
-                original_language: oi_row.original_language.clone(),
-                original_publication_year: None,
-                contributors: Vec::new(),
-                editions: vec![edition],
-            };
-
-            books.push(book);
-        }
-    }
-
-    Ok(books)
 }
 
 #[derive(Serialize)]

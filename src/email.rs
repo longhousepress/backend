@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::models::Book;
-use crate::tera::PURCHASE_EMAIL;
+use crate::tera::{PURCHASE_EMAIL, SUBMISSION_EMAIL};
 use anyhow::Result;
-use resend_rs::types::CreateEmailBaseOptions;
+use resend_rs::types::{CreateAttachment, CreateEmailBaseOptions};
 use resend_rs::Resend;
 use tera::{Context, Tera};
 
@@ -53,6 +53,61 @@ pub async fn send_purchase_email(
                 e
             );
             Err(e.into())
+        }
+    }
+}
+
+pub async fn send_submission_email(
+    config: &Config,
+    tera: &Tera,
+    submitter: &str,
+    submission_type: &str,
+    message: Option<&str>,
+    filename: &str,
+    file_bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<()> {
+    let mut ctx = Context::new();
+    ctx.insert("submitter", submitter);
+    ctx.insert("submission_type", submission_type);
+    ctx.insert("message", &message);
+    ctx.insert("filename", filename);
+
+    let body = tera
+        .render(SUBMISSION_EMAIL, &ctx)
+        .map_err(|e| anyhow::anyhow!("template render error: {}", e))?;
+
+    let resend = Resend::new(&config.resend_api_key);
+
+    let attachment = CreateAttachment::from_content(file_bytes)
+        .with_filename(filename)
+        .with_content_type(content_type);
+
+    let subject = format!("New Submission: {} from {}", submission_type, submitter);
+    let email = CreateEmailBaseOptions::new(
+        &config.submissions_from_email,
+        [config.submissions_to_email.as_str()],
+        &subject,
+    )
+    .with_html(&body)
+    .with_attachment(attachment);
+
+    match resend.emails.send(email).await {
+        Ok(response) => {
+            rocket::info!(
+                "Submission email sent successfully from {} (Resend ID: {:?})",
+                submitter,
+                response.id
+            );
+            Ok(())
+        }
+        Err(e) => {
+            rocket::error!(
+                "Failed to send submission email from {}: {:?}",
+                submitter,
+                e
+            );
+            Err(anyhow::anyhow!("Resend API error: {:?}", e))
         }
     }
 }

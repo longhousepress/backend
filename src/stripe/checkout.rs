@@ -3,11 +3,11 @@ use email_address::EmailAddress;
 use reqwest::Client;
 use rocket::{State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use sqlx::sqlite::SqlitePool;
 
 use crate::config::Config;
-use crate::db::check_files_exist;
+use crate::db::{check_files_exist, create_order};
+use crate::models::Currency;
 
 #[post("/checkout", data = "<request>")]
 pub async fn checkout(
@@ -163,9 +163,8 @@ pub async fn create_checkout_session(
     let url = stripe_json.url;
 
     // Update our order row with the stripe_session_id
-    match req
-        .persist(db.inner(), &stripe_session_id, Some(req.currency.as_str()))
-        .await
+    let items: Vec<(i64, u8)> = req.items.iter().map(|i| (i.edition_id, i.quantity)).collect();
+    match create_order(db.inner(), &req.email, &stripe_session_id, req.currency.as_str(), &items).await
     {
         Ok(_) => Ok(CheckoutSession { url }),
         // If the DB insert fails, we need to clean up the dangling session
@@ -276,25 +275,6 @@ pub struct PaymentIntentData {
     pub metadata: std::collections::HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Currency {
-    Usd,
-    Eur,
-    Gbp,
-}
-
-impl Currency {
-    // Convert Currency enum to uppercase string for database queries and Stripe API
-    pub fn as_str(&self) -> &str {
-        match self {
-            Currency::Usd => "USD",
-            Currency::Eur => "EUR",
-            Currency::Gbp => "GBP",
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckoutMode {
@@ -302,7 +282,7 @@ pub enum CheckoutMode {
 }
 
 // What the front end POSTs to us
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Serialize, Deserialize)]
 pub struct CheckoutRequest {
     pub email: String,
     pub currency: Currency,
@@ -310,94 +290,13 @@ pub struct CheckoutRequest {
 }
 
 // What we will return to the front end
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Serialize, Deserialize)]
 pub struct CheckoutSession {
     pub url: String,
 }
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Serialize, Deserialize)]
 pub struct CheckoutItem {
     pub edition_id: i64,
     pub quantity: u8,
-}
-
-#[allow(dead_code)]
-impl CheckoutRequest {
-    /// Persist this checkout request as an `orders` row and associated `order_items`.
-    ///
-    /// Behavior:
-    /// - Looks up each edition's current `price` and sums the total.
-    /// - Inserts a row into `orders` (with optional `client_reference` and `stripe_session_id`).
-    /// - Inserts one `order_items` row per `CheckoutItem`, recording `price_at_purchase`.
-    /// - All work is performed inside a sqlx transaction to ensure atomicity: either the order
-    ///   and all its order_items are inserted, or nothing is committed.
-    pub async fn persist(
-        &self,
-        pool: &SqlitePool,
-        stripe_session_id: &str,
-        currency: Option<&str>,
-    ) -> Result<i64> {
-        // Start a transaction so all operations are atomic
-        let mut tx = pool.begin().await?;
-
-        // Fetch prices and compute total within the transaction
-        let currency = currency.unwrap_or("GBP");
-        let mut total_amount: i64 = 0;
-        let mut prices: Vec<i64> = Vec::with_capacity(self.items.len());
-        for item in &self.items {
-            let edition_id: i64 = item.edition_id;
-
-            let row = sqlx::query!(
-                "SELECT price FROM edition_prices WHERE edition_id = ? AND currency = ?",
-                edition_id,
-                currency
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            let price: i64 = row.price;
-            prices.push(price);
-
-            let line_total = price
-                .checked_mul(item.quantity as i64)
-                .ok_or_else(|| anyhow::anyhow!("Price overflow for edition {}", edition_id))?;
-
-            total_amount = total_amount
-                .checked_add(line_total)
-                .ok_or_else(|| anyhow::anyhow!("Total amount overflow"))?;
-        }
-
-        // Insert the order (paid is NULL for pending) inside the transaction
-        let res = sqlx::query(
-            "INSERT INTO orders (stripe_session_id, email, paid, total_amount, currency) VALUES (?, ?, NULL, ?, ?)",
-        )
-        .bind(stripe_session_id)
-        .bind(&self.email)
-        .bind(total_amount)
-        .bind(currency)
-        .execute(&mut *tx)
-        .await?;
-
-        let order_id = res.last_insert_rowid();
-
-        // Insert order_items using the prices already fetched above
-        for (item, price_at_purchase) in self.items.iter().zip(prices) {
-            let edition_id: i64 = item.edition_id;
-
-            sqlx::query(
-                "INSERT INTO order_items (order_id, edition_id, quantity, price_at_purchase, currency_at_purchase) VALUES (?, ?, ?, ?, ?)",
-            )
-            .bind(order_id)
-            .bind(edition_id)
-            .bind(item.quantity as i64)
-            .bind(price_at_purchase)
-            .bind(currency)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        // Commit the transaction; if commit fails the transaction will be rolled back.
-        tx.commit().await?;
-
-        Ok(order_id)
-    }
 }

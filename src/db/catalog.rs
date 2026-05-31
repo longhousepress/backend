@@ -5,7 +5,6 @@ use anyhow::Result;
 use sqlx::sqlite::SqlitePool;
 
 use crate::models::{Book, Contributor, Edition, File, FileFormat, Price};
-
 struct FileEntry {
     file_path: String,
     is_main: bool,
@@ -90,7 +89,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
                 main_files.iter().all(|f| {
                     let full_path = Path::new(static_dir).join(&f.file_path);
                     if !full_path.exists() {
-                        eprintln!("Missing file for edition {}: {}", r.id, full_path.display());
+                        rocket::warn!("Missing file for edition {}: {}", r.id, full_path.display());
                         false
                     } else {
                         true
@@ -255,12 +254,11 @@ async fn fetch_all_files(db: &SqlitePool) -> Result<HashMap<i64, Vec<FileEntry>>
     let rows = sqlx::query!(
         "SELECT f.edition_id as \"edition_id!: i64\",
                 f.file_path as \"file_path!: String\",
-                ff.id as \"format_id!: i64\",
                 ff.name as \"format_name!: String\"
          FROM files f
          INNER JOIN file_formats ff ON f.file_format_id = ff.id
          INNER JOIN editions e ON f.edition_id = e.id AND e.listed = 1
-         WHERE ff.id IN (1, 2, 3, 4) OR ff.name = 'sample'"
+         WHERE ff.name IN ('epub', 'kepub', 'azw3', 'pdf', 'sample')"
     )
     .fetch_all(db)
     .await?;
@@ -269,7 +267,7 @@ async fn fetch_all_files(db: &SqlitePool) -> Result<HashMap<i64, Vec<FileEntry>>
     for r in rows {
         map.entry(r.edition_id).or_default().push(FileEntry {
             file_path: r.file_path,
-            is_main: r.format_id <= 4,
+            is_main: matches!(r.format_name.as_str(), "epub" | "kepub" | "azw3" | "pdf"),
             is_sample: r.format_name == "sample",
         });
     }
@@ -326,34 +324,3 @@ async fn fetch_all_book_contributors(
     }
     Ok(map)
 }
-
-pub async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePool) -> Result<bool> {
-    let rows = sqlx::query!(
-        "SELECT files.file_path as \"file_path!: String\"
-         FROM files
-         INNER JOIN file_formats ff ON files.file_format_id = ff.id
-         WHERE files.edition_id = ? AND ff.id IN (1, 2, 3, 4)",
-        edition_id
-    )
-    .fetch_all(db)
-    .await?;
-
-    if rows.is_empty() {
-        return Ok(false);
-    }
-
-    for row in rows {
-        let full_path = Path::new(static_dir).join(&row.file_path);
-        if !full_path.exists() {
-            eprintln!(
-                "Missing file for edition {}: {}",
-                edition_id,
-                full_path.display()
-            );
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-

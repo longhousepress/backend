@@ -1,5 +1,22 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Currency {
+    Usd,
+    Eur,
+    Gbp,
+}
+
+impl Currency {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Currency::Usd => "USD",
+            Currency::Eur => "EUR",
+            Currency::Gbp => "GBP",
+        }
+    }
+}
 
 // Contributor to a book or edition
 #[derive(Serialize, Deserialize, Clone)]
@@ -20,7 +37,7 @@ pub struct Price {
 }
 
 // For catalog listing - all editions with filter-relevant fields
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Book {
     pub id: i64,
     pub title: String,
@@ -33,7 +50,7 @@ pub struct Book {
     pub editions: Vec<Edition>,
 }
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Edition {
     pub id: i64,
     pub title: String,
@@ -62,13 +79,13 @@ pub struct Edition {
     pub samples: Option<Vec<File>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct File {
     pub format: FileFormat,
     pub path: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum FileFormat {
     Epub,
     Kepub,

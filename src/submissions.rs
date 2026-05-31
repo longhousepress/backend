@@ -1,13 +1,10 @@
 use crate::config::Config;
-use crate::tera::SUBMISSION_EMAIL;
-use anyhow::Result;
-use resend_rs::types::{CreateAttachment, CreateEmailBaseOptions};
-use resend_rs::Resend;
+use crate::email::send_submission_email;
 use rocket::form::Form;
 use rocket::fs::TempFile;
 use rocket::response::Redirect;
 use rocket::State;
-use tera::{Context, Tera};
+use tera::Tera;
 
 #[derive(FromForm)]
 pub struct SubmissionForm<'r> {
@@ -15,68 +12,6 @@ pub struct SubmissionForm<'r> {
     pub submission_type: &'r str,
     pub message: Option<&'r str>,
     pub file: TempFile<'r>,
-}
-
-// Send submission email with attachment via Resend
-pub async fn send_submission_email(
-    config: &Config,
-    tera: &Tera,
-    submitter: &str,
-    submission_type: &str,
-    message: Option<&str>,
-    filename: &str,
-    file_bytes: Vec<u8>,
-    content_type: &str,
-) -> Result<()> {
-    // Build template context
-    let mut ctx = Context::new();
-    ctx.insert("submitter", submitter);
-    ctx.insert("submission_type", submission_type);
-    ctx.insert("message", &message);
-    ctx.insert("filename", filename);
-
-    // Render template to HTML string
-    let body = tera
-        .render(SUBMISSION_EMAIL, &ctx)
-        .map_err(|e| anyhow::anyhow!("template render error: {}", e))?;
-
-    // Initialize Resend client
-    let resend = Resend::new(&config.resend_api_key);
-
-    // Create attachment
-    let attachment = CreateAttachment::from_content(file_bytes)
-        .with_filename(filename)
-        .with_content_type(content_type);
-
-    // Create email with attachment
-    let subject = format!("New Submission: {} from {}", submission_type, submitter);
-    let email = CreateEmailBaseOptions::new(
-        &config.submissions_from_email,
-        [config.submissions_to_email.as_str()],
-        &subject,
-    )
-    .with_html(&body)
-    .with_attachment(attachment);
-
-    // Send the email
-    match resend.emails.send(email).await {
-        Ok(response) => {
-            rocket::info!(
-                "Submission email sent successfully from {} (Resend ID: {:?})",
-                submitter,
-                response.id
-            );
-            Ok(())
-        }
-        Err(e) => {
-            rocket::error!(
-                "Failed to send submission email from {}: {:?}",
-                submitter,
-                e
-            );
-            Err(anyhow::anyhow!("Resend API error: {:?}", e))
-        }
-    }
 }
 
 #[post("/submit", data = "<form>")]

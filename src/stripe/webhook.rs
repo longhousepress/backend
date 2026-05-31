@@ -9,9 +9,8 @@ use tera::Tera;
 use rocket::request::{self, FromRequest, Request};
 
 use crate::config::Config;
-use crate::db::mark_order_paid;
+use crate::db::{find_order_by_session_id, get_downloadable_books_for_order, mark_order_paid};
 use crate::email::send_purchase_email;
-use crate::stripe::verify_order::get_downloadable_books_for_order;
 
 /// Webhook endpoint to receive Stripe events.
 #[post("/webhook", data = "<payload>")]
@@ -21,12 +20,12 @@ pub async fn stripe_webhook(
     tera: &State<Tera>,
     payload: String,
     signature: StripeSignature,
-    content_type: ContentType,
+    content_type: Option<&rocket::http::ContentType>,
 ) -> Result<rocket::http::Status, rocket::http::Status> {
     rocket::info!("Webhook received");
 
     // Validate Content-Type
-    if !content_type.is_json() {
+    if !content_type.map_or(false, |ct| ct.is_json()) {
         rocket::warn!("Webhook rejected: invalid Content-Type");
         return Err(rocket::http::Status::BadRequest);
     }
@@ -73,24 +72,20 @@ pub async fn stripe_webhook(
         );
 
         // Look up the order by stripe_session_id and verify email matches
-        let order = sqlx::query!(
-            "SELECT id, email, paid FROM orders WHERE stripe_session_id = ?",
-            session_id
-        )
-        .fetch_optional(db.inner())
-        .await
-        .map_err(|e| {
-            rocket::error!(
-                "Database error looking up order for session {}: {:?}",
-                session_id,
-                e
-            );
-            rocket::http::Status::InternalServerError
-        })?
-        .ok_or_else(|| {
-            rocket::warn!("Webhook received for unknown session {}", session_id);
-            rocket::http::Status::InternalServerError
-        })?;
+        let order = find_order_by_session_id(db.inner(), &session_id)
+            .await
+            .map_err(|e| {
+                rocket::error!(
+                    "Database error looking up order for session {}: {:?}",
+                    session_id,
+                    e
+                );
+                rocket::http::Status::InternalServerError
+            })?
+            .ok_or_else(|| {
+                rocket::warn!("Webhook received for unknown session {}", session_id);
+                rocket::http::Status::InternalServerError
+            })?;
 
         let order_id = order.id.ok_or_else(|| {
             rocket::error!("Order ID is null for session {}", session_id);
@@ -256,26 +251,6 @@ impl<'r> FromRequest<'r> for StripeSignature {
     async fn from_request(req: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         match req.headers().get_one("Stripe-Signature") {
             Some(sig) => request::Outcome::Success(StripeSignature(sig.to_string())),
-            None => request::Outcome::Error((rocket::http::Status::BadRequest, ())),
-        }
-    }
-}
-
-pub struct ContentType(pub rocket::http::ContentType);
-
-impl ContentType {
-    pub fn is_json(&self) -> bool {
-        self.0.is_json()
-    }
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ContentType {
-    type Error = ();
-
-    async fn from_request(req: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-        match req.content_type() {
-            Some(ct) => request::Outcome::Success(ContentType(ct.clone())),
             None => request::Outcome::Error((rocket::http::Status::BadRequest, ())),
         }
     }
