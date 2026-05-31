@@ -45,6 +45,13 @@ impl Provider for SystemdCreds {
 }
 use rocket::fairing::AdHoc;
 use rocket::fs::FileServer;
+use rocket::Request;
+
+#[catch(404)]
+fn not_found(req: &Request) -> rocket::http::Status {
+    debug!("404 {} {}", req.method(), req.uri());
+    rocket::http::Status::NotFound
+}
 
 use crate::config::Config;
 use crate::cors::setup_cors;
@@ -92,4 +99,5 @@ async fn rocket() -> _ {
             ],
         )
         .mount("/", FileServer::from(public_dir))
+        .register("/", catchers![not_found])
 }
