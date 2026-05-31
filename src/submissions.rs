@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::tera::SUBMISSION_EMAIL;
 use anyhow::Result;
 use resend_rs::types::{CreateAttachment, CreateEmailBaseOptions};
 use resend_rs::Resend;
@@ -36,7 +37,7 @@ pub async fn send_submission_email(
 
     // Render template to HTML string
     let body = tera
-        .render("submission_email.html.tera", &ctx)
+        .render(SUBMISSION_EMAIL, &ctx)
         .map_err(|e| anyhow::anyhow!("template render error: {}", e))?;
 
     // Initialize Resend client

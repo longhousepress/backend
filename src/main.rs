@@ -7,6 +7,7 @@ mod email;
 mod models;
 mod stripe;
 mod submissions;
+mod tera;
 mod tokens;
 mod head;
 
@@ -44,11 +45,11 @@ impl Provider for SystemdCreds {
 }
 use rocket::fairing::AdHoc;
 use rocket::fs::FileServer;
-use tera::Tera;
 
 use crate::config::Config;
 use crate::cors::setup_cors;
 use crate::db::load_db;
+use crate::tera::load_tera;
 
 #[macro_use]
 extern crate rocket;
@@ -69,10 +70,7 @@ async fn rocket() -> _ {
     rocket::info!("Database loaded successfully");
 
     // Initialize Tera templates once at startup and manage it in Rocket state.
-    let tera = Tera::new(&format!("{}/**/*.html.tera", config.templates_dir)).expect("Failed to initialize Tera templates");
-    for name in &["purchase_email.html.tera", "submission_email.html.tera"] {
-        tera.get_template(name).unwrap_or_else(|_| panic!("Missing required template: {name}"));
-    }
+    let tera = load_tera(&config).expect("Failed to load templates");
 
     let public_dir = config.public_dir.clone();
 

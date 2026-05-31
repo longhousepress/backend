@@ -1,12 +1,12 @@
 use crate::config::Config;
 use crate::models::Book;
+use crate::tera::PURCHASE_EMAIL;
 use anyhow::Result;
 use resend_rs::types::CreateEmailBaseOptions;
 use resend_rs::Resend;
 use tera::{Context, Tera};
 
 // Render the purchase email using Tera and send it with Resend.
-// The template file should live at `templates/purchase_email.html.tera`
 pub async fn send_purchase_email(
     config: &Config,
     tera: &Tera,
@@ -22,7 +22,7 @@ pub async fn send_purchase_email(
 
     // Render template to HTML string
     let body = tera
-        .render("purchase_email.html.tera", &ctx)
+        .render(PURCHASE_EMAIL, &ctx)
         .map_err(|e| anyhow::anyhow!("template render error: {}", e))?;
 
     // Initialize Resend client
