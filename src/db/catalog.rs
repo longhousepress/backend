@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use sqlx::sqlite::SqlitePool;
 
-use crate::models::{Book, Contributor, Edition, File, FileFormat, Price};
+use crate::models::{Book, Contributor, Currency, Edition, File, FileFormat, Price};
 struct FileEntry {
     file_path: String,
     is_main: bool,
@@ -214,8 +214,9 @@ async fn fetch_all_edition_prices(db: &SqlitePool) -> Result<HashMap<i64, Vec<Pr
 
     let mut map: HashMap<i64, Vec<Price>> = HashMap::new();
     for r in rows {
+        let currency = Currency::try_from(r.currency)?;
         map.entry(r.edition_id).or_default().push(Price {
-            currency: r.currency,
+            currency,
             amount: r.price,
         });
     }

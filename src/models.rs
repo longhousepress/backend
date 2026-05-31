@@ -1,11 +1,29 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Currency {
+    #[serde(rename = "USD")]
     Usd,
+    #[serde(rename = "EUR")]
     Eur,
+    #[serde(rename = "GBP")]
     Gbp,
+    #[serde(rename = "KRW")]
+    Krw,
+}
+
+impl TryFrom<String> for Currency {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.as_str() {
+            "USD" => Ok(Currency::Usd),
+            "EUR" => Ok(Currency::Eur),
+            "GBP" => Ok(Currency::Gbp),
+            "KRW" => Ok(Currency::Krw),
+            _ => Err(anyhow::anyhow!("Unknown currency: {}", s)),
+        }
+    }
 }
 
 impl Currency {
@@ -14,6 +32,7 @@ impl Currency {
             Currency::Usd => "USD",
             Currency::Eur => "EUR",
             Currency::Gbp => "GBP",
+            Currency::Krw => "KRW",
         }
     }
 }
@@ -32,7 +51,7 @@ pub struct Contributor {
 // Price in a specific currency
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Price {
-    pub currency: String,
+    pub currency: Currency,
     pub amount: i64,
 }
 
