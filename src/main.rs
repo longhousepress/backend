@@ -70,6 +70,9 @@ async fn rocket() -> _ {
 
     // Initialize Tera templates once at startup and manage it in Rocket state.
     let tera = Tera::new(&format!("{}/**/*.html.tera", config.templates_dir)).expect("Failed to initialize Tera templates");
+    for name in &["purchase_email.html.tera", "submission_email.html.tera"] {
+        tera.get_template(name).unwrap_or_else(|_| panic!("Missing required template: {name}"));
+    }
 
     let public_dir = config.public_dir.clone();
 
