@@ -114,3 +114,131 @@ pub fn verify(tok: &str, token_key: &str) -> Result<String, String> {
     // At this point the filepath is considered safe enough to hand to NamedFile::open.
     Ok(filepath)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_KEY: &str = "test-secret-key";
+
+    #[test]
+    fn roundtrip() {
+        let token = mint("static/books/test.epub", TEST_KEY);
+        let filepath = verify(&token, TEST_KEY).unwrap();
+        assert_eq!(filepath, "static/books/test.epub");
+    }
+
+    #[test]
+    fn roundtrip_no_static_prefix() {
+        let token = mint("books/test.epub", TEST_KEY);
+        let filepath = verify(&token, TEST_KEY).unwrap();
+        assert_eq!(filepath, "books/test.epub");
+    }
+
+    #[test]
+    fn roundtrip_nested_path() {
+        let token = mint("static/books/author/title.epub", TEST_KEY);
+        let filepath = verify(&token, TEST_KEY).unwrap();
+        assert_eq!(filepath, "static/books/author/title.epub");
+    }
+
+    #[test]
+    fn wrong_key_rejects() {
+        let token = mint("static/books/test.epub", TEST_KEY);
+        assert!(verify(&token, "different-key").is_err());
+    }
+
+    #[test]
+    fn empty_token_rejects() {
+        assert!(verify("", TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn garbage_base64_rejects() {
+        assert!(verify("!!!not-base64!!!", TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn truncated_token_rejects() {
+        // Valid base64 but too short to contain version + length + signature
+        let short = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &[0x01, 0x00]);
+        assert!(verify(&short, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn tampered_signature_rejects() {
+        let token = mint("static/books/test.epub", TEST_KEY);
+        let mut buf = base64::Engine::decode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            &token,
+        ).unwrap();
+        // flip last byte of signature
+        let last = buf.len() - 1;
+        buf[last] ^= 0xff;
+        let tampered = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            &buf,
+        );
+        assert!(verify(&tampered, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn tampered_filepath_rejects() {
+        let token = mint("static/books/test.epub", TEST_KEY);
+        let mut buf = base64::Engine::decode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            &token,
+        ).unwrap();
+        // flip a byte in the filepath region (after version + length)
+        buf[4] ^= 0xff;
+        let tampered = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            &buf,
+        );
+        assert!(verify(&tampered, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn path_traversal_rejects() {
+        let token = mint("static/../../../etc/passwd", TEST_KEY);
+        assert!(verify(&token, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn dot_dot_in_middle_rejects() {
+        let token = mint("static/books/../../../etc/passwd", TEST_KEY);
+        assert!(verify(&token, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn absolute_path_rejects() {
+        let token = mint("/etc/passwd", TEST_KEY);
+        assert!(verify(&token, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn nul_byte_rejects() {
+        let token = mint("static/foo\0bar", TEST_KEY);
+        assert!(verify(&token, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn backslash_rejects() {
+        let token = mint("static\\..\\..\\windows\\system32", TEST_KEY);
+        assert!(verify(&token, TEST_KEY).is_err());
+    }
+
+    #[test]
+    fn different_keys_produce_different_tokens() {
+        let t1 = mint("static/books/test.epub", "key-a");
+        let t2 = mint("static/books/test.epub", "key-b");
+        assert_ne!(t1, t2);
+    }
+
+    #[test]
+    fn different_paths_produce_different_tokens() {
+        let t1 = mint("static/books/a.epub", TEST_KEY);
+        let t2 = mint("static/books/b.epub", TEST_KEY);
+        assert_ne!(t1, t2);
+    }
+}
