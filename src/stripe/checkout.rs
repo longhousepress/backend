@@ -301,3 +301,68 @@ pub struct CheckoutItem {
     pub edition_id: i64,
     pub quantity: u8,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_item(edition_id: i64, name: &str, unit_amount: u32, quantity: u8) -> ResolvedCheckoutItem {
+        ResolvedCheckoutItem {
+            edition_id,
+            name: name.to_string(),
+            unit_amount,
+            quantity,
+        }
+    }
+
+    #[test]
+    fn single_item_produces_correct_line_item() {
+        let items = vec![make_item(1, "Test Book", 1500, 1)];
+        let result = create_checkout_body(&items, &Currency::Usd).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].quantity, 1);
+        assert_eq!(result[0].price_data.unit_amount, 1500);
+        assert_eq!(result[0].price_data.product_data.name, "Test Book");
+    }
+
+    #[test]
+    fn multiple_items_produce_correct_line_items() {
+        let items = vec![
+            make_item(1, "Book A", 1000, 2),
+            make_item(2, "Book B", 2500, 1),
+            make_item(3, "Book C", 500, 3),
+        ];
+        let result = create_checkout_body(&items, &Currency::Eur).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].price_data.product_data.name, "Book A");
+        assert_eq!(result[0].quantity, 2);
+        assert_eq!(result[1].price_data.product_data.name, "Book B");
+        assert_eq!(result[1].quantity, 1);
+        assert_eq!(result[2].price_data.product_data.name, "Book C");
+        assert_eq!(result[2].quantity, 3);
+    }
+
+    #[test]
+    fn empty_items_returns_empty() {
+        let items: Vec<ResolvedCheckoutItem> = vec![];
+        let result = create_checkout_body(&items, &Currency::Usd).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn currency_is_preserved() {
+        let items = vec![make_item(1, "Book", 1000, 1)];
+        let result = create_checkout_body(&items, &Currency::Krw).unwrap();
+        // Currency should be Krw for all items
+        let serialized = serde_json::to_string(&result[0].price_data.currency).unwrap();
+        assert_eq!(serialized, "\"KRW\"");
+    }
+
+    #[test]
+    fn max_quantity_times_max_amount_does_not_overflow() {
+        // u8::MAX (255) * u32::MAX would overflow u64, but u8::MAX * a reasonable amount shouldn't
+        let items = vec![make_item(1, "Expensive", 100_000, 255)]; // 255 * 100000 = 25,500,000
+        let result = create_checkout_body(&items, &Currency::Usd);
+        assert!(result.is_ok());
+    }
+}

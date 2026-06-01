@@ -242,6 +242,119 @@ struct CheckoutSessionCompletedObjectCustomerDetails {
     email: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SECRET: &str = "whsec_test_secret_12345";
+
+    fn make_signature_header(secret: &str, payload: &[u8], timestamp: i64) -> String {
+        let signed_payload = format!("{}.{}", timestamp, std::str::from_utf8(payload).unwrap());
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(signed_payload.as_bytes());
+        let sig = hex::encode(mac.finalize().into_bytes());
+        format!("t={},v1={}", timestamp, sig)
+    }
+
+    fn now_ts() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+
+    #[test]
+    fn valid_signature_accepts() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let header = make_signature_header(TEST_SECRET, payload, now_ts());
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_ok());
+    }
+
+    #[test]
+    fn wrong_secret_rejects() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let header = make_signature_header(TEST_SECRET, payload, now_ts());
+        assert!(verify_stripe_signature(payload, &header, "wrong_secret").is_err());
+    }
+
+    #[test]
+    fn tampered_payload_rejects() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let header = make_signature_header(TEST_SECRET, payload, now_ts());
+        let tampered = b"{\"type\":\"checkout.session.completed\",\"extra\":true}";
+        assert!(verify_stripe_signature(tampered, &header, TEST_SECRET).is_err());
+    }
+
+    #[test]
+    fn expired_timestamp_rejects() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let old_ts = now_ts() - 600; // 10 minutes ago
+        let header = make_signature_header(TEST_SECRET, payload, old_ts);
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_err());
+    }
+
+    #[test]
+    fn future_timestamp_rejects() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let future_ts = now_ts() + 600; // 10 minutes from now
+        let header = make_signature_header(TEST_SECRET, payload, future_ts);
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_err());
+    }
+
+    #[test]
+    fn timestamp_just_within_window_accepts() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let ts = now_ts() - 299; // 299 seconds ago, within 300s window
+        let header = make_signature_header(TEST_SECRET, payload, ts);
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_ok());
+    }
+
+    #[test]
+    fn missing_timestamp_rejects() {
+        let payload = b"{}";
+        let header = "v1=abcdef1234567890";
+        assert!(verify_stripe_signature(payload, header, TEST_SECRET).is_err());
+    }
+
+    #[test]
+    fn missing_v1_rejects() {
+        let payload = b"{}";
+        let header = format!("t={}", now_ts());
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_err());
+    }
+
+    #[test]
+    fn empty_header_rejects() {
+        let payload = b"{}";
+        assert!(verify_stripe_signature(payload, "", TEST_SECRET).is_err());
+    }
+
+    #[test]
+    fn multiple_v1_signatures_one_valid_accepts() {
+        let payload = b"{\"type\":\"checkout.session.completed\"}";
+        let ts = now_ts();
+        let signed_payload = format!("{}.{}", ts, std::str::from_utf8(payload).unwrap());
+        let mut mac = Hmac::<Sha256>::new_from_slice(TEST_SECRET.as_bytes()).unwrap();
+        mac.update(signed_payload.as_bytes());
+        let valid_sig = hex::encode(mac.finalize().into_bytes());
+        let header = format!("t={},v1=deadbeef,v1={}", ts, valid_sig);
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_ok());
+    }
+
+    #[test]
+    fn hex_case_mismatch_rejects() {
+        let payload = b"{}";
+        let ts = now_ts();
+        let signed_payload = format!("{}.{}", ts, std::str::from_utf8(payload).unwrap());
+        let mut mac = Hmac::<Sha256>::new_from_slice(TEST_SECRET.as_bytes()).unwrap();
+        mac.update(signed_payload.as_bytes());
+        let sig = hex::encode(mac.finalize().into_bytes());
+        // hex::encode is lowercase, so uppercase should not match
+        let header = format!("t={},v1={}", ts, sig.to_uppercase());
+        assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_err());
+    }
+}
+
 pub struct StripeSignature(pub String);
 
 #[rocket::async_trait]
