@@ -12,8 +12,11 @@ mod tokens;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
+use std::path::PathBuf;
+
 use rocket::fairing::AdHoc;
-use rocket::fs::FileServer;
+use rocket::fs::NamedFile;
+use rocket::http::Status;
 use rocket::Request;
 
 #[catch(404)]
@@ -29,6 +32,17 @@ use crate::tera::load_tera;
 #[head("/")]
 fn head() -> rocket::http::Status {
     rocket::http::Status::Ok
+}
+
+// Custom wrapper over NamedFile instead of using the built-in FileServer so
+// that non-existent files (bot spam mainly) don't log a critical warning.
+#[get("/<path..>", rank = 10)]
+async fn static_files(root: &rocket::State<PathBuf>, path: PathBuf) -> Result<NamedFile, (Status, ())> {
+    let mut full_path = root.join(&path);
+    if full_path.is_dir() {
+        full_path.push("index.html");
+    }
+    NamedFile::open(full_path).await.map_err(|_| (Status::NotFound, ()))
 }
 
 #[macro_use]
@@ -52,16 +66,17 @@ async fn rocket() -> _ {
     // Initialize Tera templates once at startup and manage it in Rocket state.
     let tera = load_tera(&config).expect("Failed to load templates");
 
-    let public_dir = config.public_dir.clone();
+    let public_dir = PathBuf::from(&config.public_dir);
     let http_client = reqwest::Client::new();
 
     rocket::custom(figment)
         .manage(tera)
         .manage(db)
         .manage(http_client)
+        .manage(public_dir)
         .attach(AdHoc::config::<Config>())
         .attach(AdHoc::on_ignite("CORS Setup", setup_cors))
-        .mount("/", routes![head])
+        .mount("/", routes![head, static_files])
         .mount(
             "/api",
             routes![
@@ -73,6 +88,5 @@ async fn rocket() -> _ {
                 submissions::submit,
             ],
         )
-        .mount("/", FileServer::from(public_dir))
         .register("/", catchers![not_found])
 }
