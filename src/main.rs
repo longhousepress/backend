@@ -17,9 +17,8 @@ use rocket::fs::FileServer;
 use rocket::Request;
 
 #[catch(404)]
-fn not_found(req: &Request) -> rocket::http::Status {
-    debug!("404 {} {}", req.method(), req.uri());
-    rocket::http::Status::NotFound
+fn not_found(req: &Request) -> String {
+    format!("{} does not exist.", req.uri())
 }
 
 use crate::config::{Config, SystemdCreds};
