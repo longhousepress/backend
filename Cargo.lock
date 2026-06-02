@@ -134,6 +134,7 @@ dependencies = [
  "figment",
  "hex",
  "hmac",
+ "libc",
  "percent-encoding",
  "reqwest",
  "resend-rs",
