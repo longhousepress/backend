@@ -17,12 +17,7 @@ use std::path::PathBuf;
 use rocket::fairing::AdHoc;
 use rocket::fs::NamedFile;
 use rocket::http::Status;
-use rocket::Request;
-
-#[catch(404)]
-fn not_found(req: &Request) -> String {
-    format!("{} does not exist.", req.uri())
-}
+use rocket::response::content::RawHtml;
 
 use crate::config::{Config, SystemdCreds};
 use crate::cors::setup_cors;
@@ -37,12 +32,19 @@ fn head() -> rocket::http::Status {
 // Custom wrapper over NamedFile instead of using the built-in FileServer so
 // that non-existent files (bot spam mainly) don't log a critical warning.
 #[get("/<path..>", rank = 10)]
-async fn static_files(root: &rocket::State<PathBuf>, path: PathBuf) -> Result<NamedFile, (Status, ())> {
+async fn static_files(root: &rocket::State<PathBuf>, path: PathBuf) -> Result<NamedFile, (Status, RawHtml<String>)> {
     let mut full_path = root.join(&path);
     if full_path.is_dir() {
         full_path.push("index.html");
     }
-    NamedFile::open(full_path).await.map_err(|_| (Status::NotFound, ()))
+    if let Ok(file) = NamedFile::open(&full_path).await {
+        return Ok(file);
+    }
+    let fallback = root.join("404.html");
+    match tokio::fs::read_to_string(fallback).await {
+        Ok(html) => Err((Status::NotFound, RawHtml(html))),
+        Err(_) => Err((Status::NotFound, RawHtml("Not Found".into()))),
+    }
 }
 
 #[macro_use]
@@ -88,5 +90,4 @@ async fn rocket() -> _ {
                 submissions::submit,
             ],
         )
-        .register("/", catchers![not_found])
 }
