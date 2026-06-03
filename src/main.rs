@@ -35,13 +35,18 @@ async fn static_files(
     State(state): State<AppState>,
     uri: axum::http::Uri,
 ) -> impl IntoResponse {
-    let path = uri.path().trim_start_matches('/');
+    let raw_path = uri.path().trim_start_matches('/');
 
-    if path.contains("..") || path.contains('\0') {
+    // Percent-decode first so %2e%2e etc. can't bypass the check
+    let decoded = percent_encoding::percent_decode_str(raw_path)
+        .decode_utf8_lossy()
+        .into_owned();
+
+    if decoded.contains("..") || decoded.contains('\0') || decoded.contains('\\') {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
 
-    let mut full_path = state.public_dir.join(path);
+    let mut full_path = state.public_dir.join(&decoded);
     if full_path.is_dir() {
         full_path.push("index.html");
     }
@@ -62,10 +67,12 @@ async fn serve_file(path: &std::path::Path) -> Option<axum::response::Response> 
     let mime = mime_guess::from_path(path)
         .first_or_octet_stream()
         .to_string();
+    let len = bytes.len();
     Some(
         axum::response::Response::builder()
             .status(StatusCode::OK)
             .header(axum::http::header::CONTENT_TYPE, mime)
+            .header(axum::http::header::CONTENT_LENGTH, len)
             .body(axum::body::Body::from(bytes))
             .unwrap(),
     )
