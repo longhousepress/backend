@@ -36,6 +36,11 @@ async fn static_files(
     uri: axum::http::Uri,
 ) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
+
+    if path.contains("..") || path.contains('\0') {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
+
     let mut full_path = state.public_dir.join(path);
     if full_path.is_dir() {
         full_path.push("index.html");
