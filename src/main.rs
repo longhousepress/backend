@@ -17,7 +17,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, head, post};
 use axum::Router;
 use figment::Figment;
-use figment::providers::{Env, Format, Toml};
+use figment::providers::Env;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 
@@ -82,7 +82,6 @@ async fn main() {
 
     // Configure Figment to read from Rocket.toml and environment variables
     let figment = Figment::new()
-        .merge(Toml::file("Rocket.toml").nested())
         .merge(Env::prefixed("DRAGON_"))
         .merge(SystemdCreds);
 
