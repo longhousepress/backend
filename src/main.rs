@@ -51,7 +51,7 @@ async fn static_files(
             let fallback = state.public_dir.join("404.html");
             match tokio::fs::read_to_string(fallback).await {
                 Ok(html) => (StatusCode::NOT_FOUND, html).into_response(),
-                Err(_) => (StatusCode::NOT_FOUND, "Not Found".into_response()).into_response(),
+                Err(_) => (StatusCode::NOT_FOUND, "Not Found").into_response(),
             }
         }
     }
