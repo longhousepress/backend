@@ -27,7 +27,7 @@ impl IntoResponse for ErrorResponse {
 
 #[derive(Deserialize)]
 pub struct VerifyOrderParams {
-    pub session_id: String,
+    pub session_id: Option<String>,
 }
 
 // HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
@@ -35,7 +35,9 @@ pub async fn verify_order_endpoint(
     State(state): State<AppState>,
     Query(params): Query<VerifyOrderParams>,
 ) -> Result<Json<SuccessReturn>, ErrorResponse> {
-    let session_id = &params.session_id;
+    let session_id = params.session_id.as_deref().ok_or_else(|| {
+        ErrorResponse::Status(StatusCode::NOT_FOUND)
+    })?;
 
     // Look up the order by Stripe session id
     let row = find_order_by_session_id(&state.db, session_id)
