@@ -1,6 +1,6 @@
 use figment::value::{Dict, Map};
 use figment::{Error, Metadata, Profile, Provider};
-use rocket::serde::Deserialize;
+use serde::Deserialize;
 
 pub struct SystemdCreds;
 
@@ -32,7 +32,6 @@ impl Provider for SystemdCreds {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(crate = "rocket::serde")]
 pub struct Config {
     pub token_key: String,
     pub stripe_api_key: String,

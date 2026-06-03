@@ -1,50 +1,71 @@
-use crate::config::Config;
 use crate::email::send_submission_email;
-use rocket::form::Form;
-use rocket::fs::TempFile;
-use rocket::response::Redirect;
-use rocket::State;
-use tera::Tera;
+use crate::state::AppState;
+use axum::extract::{Multipart, State};
+use axum::response::Redirect;
 
-#[derive(FromForm)]
-pub struct SubmissionForm<'r> {
-    pub submitter: &'r str,
-    pub submission_type: &'r str,
-    pub message: Option<&'r str>,
-    pub file: TempFile<'r>,
-}
-
-#[post("/submit", data = "<form>")]
 pub async fn submit(
-    config: &State<Config>,
-    tera: &State<Tera>,
-    mut form: Form<SubmissionForm<'_>>,
-) -> Redirect {
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Redirect, (axum::http::StatusCode, String)> {
+    let mut submitter = String::new();
+    let mut submission_type = String::new();
+    let mut message = String::new();
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut file_name = String::new();
+    let mut file_content_type = String::new();
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "submitter" => {
+                submitter = field.text().await.unwrap_or_default();
+            }
+            "submission_type" => {
+                submission_type = field.text().await.unwrap_or_default();
+            }
+            "message" => {
+                message = field.text().await.unwrap_or_default();
+            }
+            "file" => {
+                file_name = field
+                    .file_name()
+                    .unwrap_or("submission")
+                    .to_string();
+                file_content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                file_bytes = Some(field.bytes().await.unwrap_or_default().to_vec());
+            }
+            _ => {}
+        }
+    }
+
     // Validate submitter is not empty
-    let submitter = form.submitter.trim();
+    let submitter = submitter.trim();
     if submitter.is_empty() {
-        return Redirect::to(format!(
+        return Ok(Redirect::to(&format!(
             "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode("Submitter name is required", percent_encoding::NON_ALPHANUMERIC)
-        ));
+            percent_encoding::utf8_percent_encode(
+                "Submitter name is required",
+                percent_encoding::NON_ALPHANUMERIC
+            )
+        )));
     }
 
     // Validate submission_type is one of the allowed values
-    let submission_type = form.submission_type.trim();
+    let submission_type = submission_type.trim();
     if submission_type != "Poetry" && submission_type != "Short Fiction" {
-        return Redirect::to(format!(
+        return Ok(Redirect::to(&format!(
             "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode("Invalid submission type", percent_encoding::NON_ALPHANUMERIC)
-        ));
+            percent_encoding::utf8_percent_encode(
+                "Invalid submission type",
+                percent_encoding::NON_ALPHANUMERIC
+            )
+        )));
     }
 
     // Validate file content type
-    let content_type = form
-        .file
-        .content_type()
-        .map(|ct| ct.to_string())
-        .unwrap_or_default();
-
     let allowed_types = [
         "application/pdf",
         "application/msword",
@@ -53,7 +74,7 @@ pub async fn submit(
         "text/markdown",
     ];
 
-    let content_type_base = content_type
+    let content_type_base = file_content_type
         .split(';')
         .next()
         .unwrap_or("")
@@ -61,86 +82,75 @@ pub async fn submit(
         .to_string();
 
     if !allowed_types.contains(&content_type_base.as_str()) {
-        return Redirect::to(format!(
+        return Ok(Redirect::to(&format!(
             "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode("Invalid file type", percent_encoding::NON_ALPHANUMERIC)
-        ));
+            percent_encoding::utf8_percent_encode(
+                "Invalid file type",
+                percent_encoding::NON_ALPHANUMERIC
+            )
+        )));
     }
+
+    let bytes = match file_bytes {
+        Some(b) => b,
+        None => {
+            return Ok(Redirect::to(&format!(
+                "/submissions/error?reason={}",
+                percent_encoding::utf8_percent_encode(
+                    "No file uploaded",
+                    percent_encoding::NON_ALPHANUMERIC
+                )
+            )));
+        }
+    };
 
     // Validate file size (10MB max)
-    const MAX_SIZE: u64 = 10 * 1024 * 1024; // 10MB in bytes
-    if form.file.len() > MAX_SIZE {
-        return Redirect::to(format!(
+    const MAX_SIZE: usize = 10 * 1024 * 1024; // 10MB in bytes
+    if bytes.len() > MAX_SIZE {
+        return Ok(Redirect::to(&format!(
             "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode("File too large (10MB max)", percent_encoding::NON_ALPHANUMERIC)
-        ));
+            percent_encoding::utf8_percent_encode(
+                "File too large (10MB max)",
+                percent_encoding::NON_ALPHANUMERIC
+            )
+        )));
     }
 
-    // Get filename
-    let filename = form
-        .file
-        .raw_name()
-        .map(|f| {
-            f.dangerous_unsafe_unsanitized_raw()
-                .as_str()
-                .chars()
-                .map(|c| if c == ' ' { '_' } else { c })
-                .filter(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_'))
-                .take(200)
-                .collect::<String>()
-        })
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "submission".to_string());
-
-    // Read file bytes using a temporary file
-    let tmp = match tempfile::NamedTempFile::new() {
-        Ok(t) => t,
-        Err(_) => {
-            return Redirect::to(format!(
-                "/submissions/error?reason={}",
-                percent_encoding::utf8_percent_encode("Failed to send submission — please try again", percent_encoding::NON_ALPHANUMERIC)
-            ));
-        }
+    // Sanitize filename
+    let filename: String = file_name
+        .chars()
+        .map(|c| if c == ' ' { '_' } else { c })
+        .filter(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        .take(200)
+        .collect::<String>();
+    let filename = if filename.is_empty() {
+        "submission".to_string()
+    } else {
+        filename
     };
-
-    if let Err(_) = form.file.persist_to(tmp.path()).await {
-        return Redirect::to(format!(
-            "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode("Failed to send submission — please try again", percent_encoding::NON_ALPHANUMERIC)
-        ));
-    }
-
-    let bytes = match tokio::fs::read(tmp.path()).await {
-        Ok(b) => b,
-        Err(_) => {
-            return Redirect::to(format!(
-                "/submissions/error?reason={}",
-                percent_encoding::utf8_percent_encode("Failed to send submission — please try again", percent_encoding::NON_ALPHANUMERIC)
-            ));
-        }
-    };
-
-    // tmp drops here and the file is deleted automatically
 
     // Send the email
     if let Err(e) = send_submission_email(
-        config,
-        tera,
+        &state.config,
+        &state.tera,
         submitter,
         submission_type,
-        form.message,
+        if message.is_empty() { None } else { Some(message.as_str()) },
         &filename,
         bytes,
         &content_type_base,
     )
     .await
     {
-        rocket::error!("send_submission_email failed: {:?}", e);
-        return Redirect::to(format!(
+        tracing::error!("send_submission_email failed: {:?}", e);
+        return Ok(Redirect::to(&format!(
             "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode("Failed to send submission — please try again", percent_encoding::NON_ALPHANUMERIC)
-        ));
+            percent_encoding::utf8_percent_encode(
+                "Failed to send submission — please try again",
+                percent_encoding::NON_ALPHANUMERIC
+            )
+        )));
     }
 
-    Redirect::to("/submissions/success")
+    Ok(Redirect::to("/submissions/success"))
 }

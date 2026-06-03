@@ -89,7 +89,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str) -> Result<Vec<Book>> 
                 main_files.iter().all(|f| {
                     let full_path = Path::new(static_dir).join(&f.file_path);
                     if !full_path.exists() {
-                        rocket::warn!("Missing file for edition {}: {}", r.id, full_path.display());
+                        tracing::warn!("Missing file for edition {}: {}", r.id, full_path.display());
                         false
                     } else {
                         true

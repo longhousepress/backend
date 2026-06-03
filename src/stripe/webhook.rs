@@ -1,107 +1,106 @@
+use axum::extract::{FromRequestParts, State};
+use axum::http::request::Parts;
+use axum::http::StatusCode;
 use hmac::{Hmac, Mac};
-use rocket::State;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
-use tera::Tera;
 
-use rocket::request::{self, FromRequest, Request};
-
-use crate::config::Config;
 use crate::db::{find_order_by_session_id, get_downloadable_books_for_order, mark_order_paid};
 use crate::email::send_purchase_email;
+use crate::state::AppState;
 
 /// Webhook endpoint to receive Stripe events.
-#[post("/webhook", data = "<payload>")]
 pub async fn stripe_webhook(
-    config: &State<Config>,
-    db: &State<SqlitePool>,
-    tera: &State<Tera>,
-    payload: String,
+    State(state): State<AppState>,
     signature: StripeSignature,
-    content_type: Option<&rocket::http::ContentType>,
-) -> Result<rocket::http::Status, rocket::http::Status> {
-    rocket::info!("Webhook received");
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Result<StatusCode, StatusCode> {
+    tracing::info!("Webhook received");
 
     // Validate Content-Type
-    if !content_type.map_or(false, |ct| ct.is_json()) {
-        rocket::warn!("Webhook rejected: invalid Content-Type");
-        return Err(rocket::http::Status::BadRequest);
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !content_type.contains("application/json") {
+        tracing::warn!("Webhook rejected: invalid Content-Type");
+        return Err(StatusCode::BAD_REQUEST);
     }
 
     verify_stripe_signature(
-        payload.as_bytes(),
+        body.as_bytes(),
         &signature.0,
-        &config.stripe_webhook_secret,
+        &state.config.stripe_webhook_secret,
     )
     .map_err(|e| {
-        rocket::error!("Webhook signature verification failed: {:?}", e);
-        rocket::http::Status::Unauthorized
+        tracing::error!("Webhook signature verification failed: {:?}", e);
+        StatusCode::UNAUTHORIZED
     })?;
 
     // Parse the event
-    let json: serde_json::Value = serde_json::from_str(&payload).map_err(|e| {
-        rocket::error!("Failed to parse webhook JSON: {:?}", e);
-        rocket::http::Status::BadRequest
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+        tracing::error!("Failed to parse webhook JSON: {:?}", e);
+        StatusCode::BAD_REQUEST
     })?;
 
     let event_type = json
         .get("type")
         .and_then(|t| t.as_str())
         .unwrap_or_default();
-    rocket::info!("Webhook event type: {}", event_type);
+    tracing::info!("Webhook event type: {}", event_type);
 
     if event_type == "checkout.session.completed" {
         let deserialized_response: CheckoutSessionCompleted = serde_json::from_value(json)
             .map_err(|e| {
-                rocket::error!(
+                tracing::error!(
                     "Could not deserialize checkout.session.completed webhook event: {e}"
                 );
-                rocket::http::Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
         let session_id = deserialized_response.data.object.id;
         let customer_email = deserialized_response.data.object.customer_details.email;
         let payment_status = deserialized_response.data.object.payment_status;
 
-        rocket::info!(
+        tracing::info!(
             "Processing checkout.session.completed for session {} with payment status {}",
             session_id,
             payment_status
         );
 
         // Look up the order by stripe_session_id and verify email matches
-        let order = find_order_by_session_id(db.inner(), &session_id)
+        let order = find_order_by_session_id(&state.db, &session_id)
             .await
             .map_err(|e| {
-                rocket::error!(
+                tracing::error!(
                     "Database error looking up order for session {}: {:?}",
                     session_id,
                     e
                 );
-                rocket::http::Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?
             .ok_or_else(|| {
-                rocket::warn!("Webhook received for unknown session {}", session_id);
-                rocket::http::Status::InternalServerError
+                tracing::warn!("Webhook received for unknown session {}", session_id);
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
         let order_id = order.id.ok_or_else(|| {
-            rocket::error!("Order ID is null for session {}", session_id);
-            rocket::http::Status::InternalServerError
+            tracing::error!("Order ID is null for session {}", session_id);
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         // Idempotency guard: if already paid, acknowledge and do nothing
         if order.paid == Some(1) {
-            rocket::info!("Order {} already processed, skipping", order_id);
-            return Ok(rocket::http::Status::Ok);
+            tracing::info!("Order {} already processed, skipping", order_id);
+            return Ok(StatusCode::OK);
         }
 
         // Verify email from Stripe matches the email stored in our order
         let stored_email = order.email.unwrap_or_default();
         if customer_email.to_lowercase() != stored_email.to_lowercase() {
-            rocket::warn!(
+            tracing::warn!(
                 "Email mismatch for order {}: Stripe says '{}' but order has '{}'",
                 order_id,
                 customer_email,
@@ -112,27 +111,27 @@ pub async fn stripe_webhook(
         }
 
         if payment_status == "paid" {
-            rocket::info!("Marking order {} as paid", order_id);
+            tracing::info!("Marking order {} as paid", order_id);
             // Use the stored email from our database for consistency
-            mark_order_paid(db.inner(), order_id, &stored_email)
+            mark_order_paid(&state.db, order_id, &stored_email)
                 .await
                 .map_err(|e| {
-                    rocket::error!("Error marking order {} paid: {:?}", order_id, e);
-                    rocket::http::Status::InternalServerError
+                    tracing::error!("Error marking order {} paid: {:?}", order_id, e);
+                    StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
             // Send purchase confirmation email with download links
-            rocket::info!("Fetching downloadable books for order {}", order_id);
-            match get_downloadable_books_for_order(config, db.inner(), order_id).await {
+            tracing::info!("Fetching downloadable books for order {}", order_id);
+            match get_downloadable_books_for_order(&state.config, &state.db, order_id).await {
                 Ok(books) => {
-                    rocket::info!(
+                    tracing::info!(
                         "Got {} books for order {}, attempting to send email",
                         books.len(),
                         order_id
                     );
                     match send_purchase_email(
-                        config.inner(),
-                        tera.inner(),
+                        &state.config,
+                        &state.tera,
                         &stored_email,
                         order_id,
                         &books,
@@ -140,14 +139,14 @@ pub async fn stripe_webhook(
                     .await
                     {
                         Ok(_) => {
-                            rocket::info!(
+                            tracing::info!(
                                 "Email for order #{} sent successfully to {}",
                                 order_id,
                                 stored_email
                             );
                         }
                         Err(e) => {
-                            rocket::error!(
+                            tracing::error!(
                                 "Failed to send purchase email for order {}: {:?}",
                                 order_id,
                                 e
@@ -157,7 +156,7 @@ pub async fn stripe_webhook(
                     }
                 }
                 Err(e) => {
-                    rocket::error!(
+                    tracing::error!(
                         "Failed to get downloadable books for order {} email: {:?}",
                         order_id,
                         e
@@ -168,7 +167,7 @@ pub async fn stripe_webhook(
         }
     }
 
-    Ok(rocket::http::Status::Ok)
+    Ok(StatusCode::OK)
 }
 
 fn verify_stripe_signature(
@@ -240,6 +239,26 @@ struct CheckoutSessionCompletedObject {
 #[derive(Serialize, Deserialize)]
 struct CheckoutSessionCompletedObjectCustomerDetails {
     email: String,
+}
+
+pub struct StripeSignature(pub String);
+
+impl<S> FromRequestParts<S> for StripeSignature
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        match parts.headers.get("Stripe-Signature") {
+            Some(sig) => Ok(StripeSignature(
+                sig.to_str()
+                    .map_err(|_| StatusCode::BAD_REQUEST)?
+                    .to_string(),
+            )),
+            None => Err(StatusCode::BAD_REQUEST),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -352,19 +371,5 @@ mod tests {
         // hex::encode is lowercase, so uppercase should not match
         let header = format!("t={},v1={}", ts, sig.to_uppercase());
         assert!(verify_stripe_signature(payload, &header, TEST_SECRET).is_err());
-    }
-}
-
-pub struct StripeSignature(pub String);
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for StripeSignature {
-    type Error = ();
-
-    async fn from_request(req: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
-        match req.headers().get_one("Stripe-Signature") {
-            Some(sig) => request::Outcome::Success(StripeSignature(sig.to_string())),
-            None => request::Outcome::Error((rocket::http::Status::BadRequest, ())),
-        }
     }
 }

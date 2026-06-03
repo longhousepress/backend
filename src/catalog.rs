@@ -1,17 +1,19 @@
-use rocket::{State, http::Status, serde::json::Json};
-use sqlx::SqlitePool;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
 
-use crate::config::Config;
+use crate::state::AppState;
 use crate::db::load_books;
 use crate::models::Book;
 
-#[get("/books", rank = 1)]
-pub async fn books(db: &State<SqlitePool>, config: &State<Config>) -> Result<Json<Vec<Book>>, Status> {
-    match load_books(db, &config.static_dir).await {
+pub async fn books(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Book>>, StatusCode> {
+    match load_books(&state.db, &state.config.static_dir).await {
         Ok(books) => Ok(Json(books)),
         Err(e) => {
-            rocket::error!("Failed to load books catalog: {}", e);
-            Err(Status::InternalServerError)
+            tracing::error!("Failed to load books catalog: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }

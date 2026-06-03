@@ -39,7 +39,7 @@ pub async fn send_purchase_email(
     // Send the email
     match resend.emails.send(email).await {
         Ok(response) => {
-            rocket::info!(
+            tracing::info!(
                 "Purchase email sent successfully for order {} (Resend ID: {:?})",
                 order_id,
                 response.id
@@ -47,7 +47,7 @@ pub async fn send_purchase_email(
             Ok(())
         }
         Err(e) => {
-            rocket::error!(
+            tracing::error!(
                 "Failed to send purchase email for order {}: {:?}",
                 order_id,
                 e
@@ -94,7 +94,7 @@ pub async fn send_submission_email(
 
     match resend.emails.send(email).await {
         Ok(response) => {
-            rocket::info!(
+            tracing::info!(
                 "Submission email sent successfully from {} (Resend ID: {:?})",
                 submitter,
                 response.id
@@ -102,7 +102,7 @@ pub async fn send_submission_email(
             Ok(())
         }
         Err(e) => {
-            rocket::error!(
+            tracing::error!(
                 "Failed to send submission email from {}: {:?}",
                 submitter,
                 e

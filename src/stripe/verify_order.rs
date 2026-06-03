@@ -1,69 +1,67 @@
-use crate::config::Config;
 use crate::db::{find_order_by_session_id, get_downloadable_books_for_order};
 use crate::models::Book;
-use rocket::Request;
-use rocket::State;
-use rocket::http::Status;
-use rocket::response::{Responder, Response};
-use rocket::serde::json::Json;
-use serde::Serialize;
-use sqlx::SqlitePool;
+use crate::state::AppState;
+use axum::extract::{Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::Json;
+use serde::{Deserialize, Serialize};
 
 /// Small responder type to send an HTTP status and optionally include the order id
 /// in a custom header (used when returning 410 Gone).
 pub enum ErrorResponse {
-    Status(Status),
-    WithOrder { status: Status, order_id: i64 },
+    Status(StatusCode),
+    WithOrder { status: StatusCode, order_id: i64 },
 }
 
-impl<'r> Responder<'r, 'static> for ErrorResponse {
-    fn respond_to(self, _req: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let mut rb = Response::build();
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> axum::response::Response {
         match self {
-            ErrorResponse::Status(s) => {
-                rb.status(s);
-            }
+            ErrorResponse::Status(s) => s.into_response(),
             ErrorResponse::WithOrder { status, order_id } => {
-                rb.status(status);
-                rb.raw_header("X-Order-Id", order_id.to_string());
+                (status, [("X-Order-Id", order_id.to_string())]).into_response()
             }
         }
-        Ok(rb.finalize())
     }
 }
 
+#[derive(Deserialize)]
+pub struct VerifyOrderParams {
+    pub session_id: String,
+}
+
 // HTTP endpoint to verify an order's Stripe session and return downloadable metadata.
-#[get("/order/verify?<session_id>")]
 pub async fn verify_order_endpoint(
-    config: &State<Config>,
-    db: &State<SqlitePool>,
-    session_id: String,
-) -> std::result::Result<Json<SuccessReturn>, ErrorResponse> {
+    State(state): State<AppState>,
+    Query(params): Query<VerifyOrderParams>,
+) -> Result<Json<SuccessReturn>, ErrorResponse> {
+    let session_id = &params.session_id;
+
     // Look up the order by Stripe session id
-    let row = find_order_by_session_id(db.inner(), &session_id)
+    let row = find_order_by_session_id(&state.db, session_id)
         .await
         .map_err(|e| {
-            rocket::error!(
+            tracing::error!(
                 "Database error looking up order by session {}: {:?}",
                 session_id,
                 e
             );
-            ErrorResponse::Status(Status::InternalServerError)
+            ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)
         })?
         .ok_or_else(|| {
-            rocket::warn!("Order not found for session {}", session_id);
-            ErrorResponse::Status(Status::NotFound)
+            tracing::warn!("Order not found for session {}", session_id);
+            ErrorResponse::Status(StatusCode::NOT_FOUND)
         })?;
 
     // Extract order id early so we can include it in the Gone response header if needed
     let order_id = match row.id {
         Some(id) => id,
-        None => return Err(ErrorResponse::Status(Status::InternalServerError)),
+        None => return Err(ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)),
     };
 
     // Must be paid (webhook already validated this with Stripe)
     if row.paid != Some(1) {
-        return Err(ErrorResponse::Status(Status::PaymentRequired));
+        return Err(ErrorResponse::Status(StatusCode::PAYMENT_REQUIRED));
     }
 
     // Check if the order was paid more than 90 minutes ago
@@ -71,12 +69,12 @@ pub async fn verify_order_endpoint(
         let paid_at = paid_at_str
             .parse::<chrono::DateTime<chrono::Utc>>()
             .map_err(|e| {
-                rocket::error!(
+                tracing::error!(
                     "Failed to parse paid_at timestamp for order {}: {:?}",
                     order_id,
                     e
                 );
-                ErrorResponse::Status(Status::InternalServerError)
+                ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)
             })?;
 
         let now = chrono::Utc::now();
@@ -85,22 +83,22 @@ pub async fn verify_order_endpoint(
         if elapsed > chrono::Duration::minutes(90) {
             // Return 410 Gone with X-Order-Id header
             return Err(ErrorResponse::WithOrder {
-                status: Status::Gone,
+                status: StatusCode::GONE,
                 order_id,
             });
         }
     }
 
     // Build downloadable books from the order
-    let books = match get_downloadable_books_for_order(config, db.inner(), order_id).await {
+    let books = match get_downloadable_books_for_order(&state.config, &state.db, order_id).await {
         Ok(b) => b,
         Err(e) => {
-            rocket::error!(
+            tracing::error!(
                 "Error building downloadable metadata for order {}: {}",
                 order_id,
                 e
             );
-            return Err(ErrorResponse::Status(Status::InternalServerError));
+            return Err(ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR));
         }
     };
 

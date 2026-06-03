@@ -26,7 +26,7 @@ pub async fn mark_order_paid(pool: &SqlitePool, order_id: i64, email: &str) -> R
     .execute(pool)
     .await?;
 
-    rocket::info!("Marked order {} as paid", order_id);
+    tracing::info!("Marked order {} as paid", order_id);
     Ok(())
 }
 
@@ -181,7 +181,7 @@ pub async fn get_downloadable_books_for_order(
                         "pdf" => FileFormat::Pdf,
                         "cover" => FileFormat::Cover,
                         other => {
-                            rocket::warn!(
+                            tracing::warn!(
                                 "Unknown file format '{}' for edition {}, skipping",
                                 other,
                                 oi_row.edition_id
@@ -261,7 +261,7 @@ pub async fn check_files_exist(edition_id: i64, static_dir: &str, db: &SqlitePoo
     for row in rows {
         let full_path = Path::new(static_dir).join(&row.file_path);
         if !full_path.exists() {
-            rocket::warn!(
+            tracing::warn!(
                 "Missing file for edition {}: {}",
                 edition_id,
                 full_path.display()

@@ -1,36 +1,34 @@
 use anyhow::Result;
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
 use email_address::EmailAddress;
 use reqwest::Client;
-use rocket::{State, http::Status, serde::json::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 
 use crate::config::Config;
 use crate::db::{check_files_exist, create_order};
 use crate::models::Currency;
+use crate::state::AppState;
 
-#[post("/checkout", data = "<request>")]
 pub async fn checkout(
-    config: &State<Config>,
-    db: &State<SqlitePool>,
-    http_client: &State<Client>,
-    request: Json<CheckoutRequest>,
-) -> Result<Json<CheckoutSession>, Status> {
-    let req = request.into_inner();
-
-    let resolved = match validate_checkout_request(&req, db, &config.static_dir).await {
+    State(state): State<AppState>,
+    Json(request): Json<CheckoutRequest>,
+) -> Result<Json<CheckoutSession>, StatusCode> {
+    let resolved = match validate_checkout_request(&request, &state.db, &state.config.static_dir).await {
         Ok(r) => r,
         Err(e) => {
-            rocket::warn!("Invalid checkout request: {}", e);
-            return Err(Status::BadRequest);
+            tracing::warn!("Invalid checkout request: {}", e);
+            return Err(StatusCode::BAD_REQUEST);
         }
     };
 
-    match create_checkout_session(config, db, http_client, &req, resolved).await {
+    match create_checkout_session(&state.config, &state.db, &state.http_client, &request, resolved).await {
         Ok(s) => Ok(Json(s)),
         Err(e) => {
-            rocket::error!("Error creating checkout session: {}", e);
-            Err(Status::InternalServerError)
+            tracing::error!("Error creating checkout session: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -117,9 +115,9 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
 }
 
 pub async fn create_checkout_session(
-    config: &State<Config>,
-    db: &State<SqlitePool>,
-    http_client: &State<Client>,
+    config: &Config,
+    db: &SqlitePool,
+    http_client: &Client,
     req: &CheckoutRequest,
     resolved: Vec<ResolvedCheckoutItem>,
 ) -> Result<CheckoutSession> {
@@ -165,18 +163,18 @@ pub async fn create_checkout_session(
 
     // Update our order row with the stripe_session_id
     let items: Vec<(i64, u8)> = req.items.iter().map(|i| (i.edition_id, i.quantity)).collect();
-    match create_order(db.inner(), &req.email, &stripe_session_id, req.currency.as_str(), &items).await
+    match create_order(db, &req.email, &stripe_session_id, req.currency.as_str(), &items).await
     {
         Ok(_) => Ok(CheckoutSession { url }),
         // If the DB insert fails, we need to clean up the dangling session
         Err(e) => {
-            rocket::error!(
+            tracing::error!(
                 "Failed to persist order for Stripe session {}: {}",
                 stripe_session_id,
                 e
             );
             if let Err(expire_err) = expire_stripe_session(config, &stripe_session_id, http_client).await {
-                rocket::warn!(
+                tracing::warn!(
                     "Failed to expire dangling Stripe session {}: {}",
                     stripe_session_id,
                     expire_err
