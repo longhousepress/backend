@@ -71,20 +71,26 @@ pub async fn stripe_webhook(
         );
 
         // Look up the order by stripe_session_id and verify email matches
-        let order = find_order_by_session_id(&state.db, &session_id)
-            .await
-            .map_err(|e| {
+        let order = match find_order_by_session_id(&state.db, &session_id).await {
+            Err(e) => {
                 tracing::error!(
                     "Database error looking up order for session {}: {:?}",
                     session_id,
                     e
                 );
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?
-            .ok_or_else(|| {
-                tracing::warn!("Webhook received for unknown session {}", session_id);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            Ok(None) => {
+                // Unknown session — could be a test event or a pre-migration order.
+                // Acknowledge with 200 so Stripe does not retry indefinitely.
+                tracing::warn!(
+                    "Webhook received for unknown session {}, acknowledging without processing",
+                    session_id
+                );
+                return Ok(StatusCode::OK);
+            }
+            Ok(Some(o)) => o,
+        };
 
         let order_id = order.id.ok_or_else(|| {
             tracing::error!("Order ID is null for session {}", session_id);
