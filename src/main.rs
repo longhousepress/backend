@@ -11,7 +11,7 @@ mod submissions;
 mod tera;
 mod tokens;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, head, post};
@@ -125,7 +125,12 @@ async fn main() {
         .route("/checkout", post(stripe::checkout::checkout))
         .route("/order/verify", get(stripe::verify_order::verify_order_endpoint))
         .route("/webhook", post(stripe::webhook::stripe_webhook))
-        .route("/submit", post(submissions::submit));
+        // 11 MB cap: 10 MB file + headroom for multipart framing/fields.
+        // DefaultBodyLimit rejects the request before the handler reads any bytes,
+        // so a large upload never reaches memory.
+        .route("/submit", post(submissions::submit)
+                .layer(DefaultBodyLimit::max(11 * 1024 * 1024)),
+        );
 
     let app = Router::new()
         .route("/", head(head_handler))

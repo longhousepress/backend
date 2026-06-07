@@ -104,18 +104,6 @@ pub async fn submit(
         }
     };
 
-    // Validate file size (10MB max)
-    const MAX_SIZE: usize = 10 * 1024 * 1024; // 10MB in bytes
-    if bytes.len() > MAX_SIZE {
-        return Ok(Redirect::to(&format!(
-            "/submissions/error?reason={}",
-            percent_encoding::utf8_percent_encode(
-                "File too large (10MB max)",
-                percent_encoding::NON_ALPHANUMERIC
-            )
-        )));
-    }
-
     // Sanitize filename
     let filename: String = file_name
         .chars()
