@@ -92,7 +92,16 @@ pub async fn submit(
     }
 
     let bytes = match file_bytes {
-        Some(b) => b,
+        Some(b) if !b.is_empty() => b,
+        Some(_) => {
+            return Ok(Redirect::to(&format!(
+                "/submissions/error?reason={}",
+                percent_encoding::utf8_percent_encode(
+                    "Uploaded file is empty",
+                    percent_encoding::NON_ALPHANUMERIC
+                )
+            )));
+        }
         None => {
             return Ok(Redirect::to(&format!(
                 "/submissions/error?reason={}",
