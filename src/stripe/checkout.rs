@@ -106,7 +106,13 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
         resolved.push(ResolvedCheckoutItem {
             edition_id: item.edition_id,
             name: title,
-            unit_amount: price as u32,
+            unit_amount: u32::try_from(price).map_err(|_| {
+                anyhow::anyhow!(
+                    "Price {} for edition {} is out of range for u32",
+                    price,
+                    item.edition_id
+                )
+            })?,
             quantity: item.quantity,
         });
     }
