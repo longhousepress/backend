@@ -66,29 +66,33 @@ pub async fn verify_order_endpoint(
         return Err(ErrorResponse::Status(StatusCode::PAYMENT_REQUIRED));
     }
 
-    // Check if the order was paid more than 90 minutes ago
-    if let Some(paid_at_str) = row.paid_at {
-        let paid_at = paid_at_str
-            .parse::<chrono::DateTime<chrono::Utc>>()
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to parse paid_at timestamp for order {}: {:?}",
-                    order_id,
-                    e
-                );
-                ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)
-            })?;
+    // Check if the order was paid more than 90 minutes ago.
+    // A missing paid_at on an otherwise-paid order is a data integrity problem; fail it.
+    let paid_at_str = row.paid_at.ok_or_else(|| {
+        tracing::error!("Order {} has paid=1 but no paid_at timestamp", order_id);
+        ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)
+    })?;
 
-        let now = chrono::Utc::now();
-        let elapsed = now.signed_duration_since(paid_at);
-
-        if elapsed > chrono::Duration::minutes(90) {
-            // Return 410 Gone with X-Order-Id header
-            return Err(ErrorResponse::WithOrder {
-                status: StatusCode::GONE,
+    let paid_at = paid_at_str
+        .parse::<chrono::DateTime<chrono::Utc>>()
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to parse paid_at timestamp for order {}: {:?}",
                 order_id,
-            });
-        }
+                e
+            );
+            ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)
+        })?;
+
+    let now = chrono::Utc::now();
+    let elapsed = now.signed_duration_since(paid_at);
+
+    if elapsed > chrono::Duration::minutes(90) {
+        // Return 410 Gone with X-Order-Id header
+        return Err(ErrorResponse::WithOrder {
+            status: StatusCode::GONE,
+            order_id,
+        });
     }
 
     // Build downloadable books from the order
