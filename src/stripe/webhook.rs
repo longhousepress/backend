@@ -99,15 +99,17 @@ pub async fn stripe_webhook(
 
         // Verify email from Stripe matches the email stored in our order
         let stored_email = order.email.unwrap_or_default();
-        if customer_email.to_lowercase() != stored_email.to_lowercase() {
-            tracing::warn!(
-                "Email mismatch for order {}: Stripe says '{}' but order has '{}'",
-                order_id,
-                customer_email,
-                stored_email
-            );
-            // Use the email from our database (more trustworthy as it was user-provided)
-            // but continue processing - this is just a warning
+        if let Some(ref stripe_email) = customer_email {
+            if stripe_email.to_lowercase() != stored_email.to_lowercase() {
+                tracing::warn!(
+                    "Email mismatch for order {}: Stripe says '{}' but order has '{}'",
+                    order_id,
+                    stripe_email,
+                    stored_email
+                );
+                // Use the email from our database (more trustworthy as it was user-provided)
+                // but continue processing - this is just a warning
+            }
         }
 
         if payment_status == "paid" {
@@ -238,7 +240,7 @@ struct CheckoutSessionCompletedObject {
 
 #[derive(Serialize, Deserialize)]
 struct CheckoutSessionCompletedObjectCustomerDetails {
-    email: String,
+    email: Option<String>,
 }
 
 pub struct StripeSignature(pub String);
