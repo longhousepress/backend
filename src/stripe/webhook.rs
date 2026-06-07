@@ -209,10 +209,15 @@ fn verify_stripe_signature(
     mac.update(signed_payload.as_bytes());
     let expected = hex::encode(mac.finalize().into_bytes());
 
-    // Use constant-time comparison to prevent timing attacks
-    let valid = signatures
+    // Use constant-time comparison to prevent timing attacks.
+    // Fold all comparisons with | before branching so short-circuit evaluation
+    // can't leak whether an early signature matched.
+    let valid: bool = signatures
         .iter()
-        .any(|s| s.as_bytes().ct_eq(expected.as_bytes()).into());
+        .fold(subtle::Choice::from(0u8), |acc, s| {
+            acc | s.as_bytes().ct_eq(expected.as_bytes())
+        })
+        .into();
 
     if valid {
         Ok(())
