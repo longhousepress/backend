@@ -127,6 +127,8 @@ pub async fn download(
         })
         .unwrap_or_else(|| "application/octet-stream".to_string());
 
+    tracing::info!("Fulfilled a valid download request.");
+
     Ok(DownloadResponder {
         file,
         filename,

@@ -25,7 +25,10 @@ pub async fn checkout(
     };
 
     match create_checkout_session(&state.config, &state.db, &state.http_client, &request, resolved).await {
-        Ok(s) => Ok(Json(s)),
+        Ok(s) => {
+            tracing::info!("Created a checkout session.");
+            Ok(Json(s))
+        }
         Err(e) => {
             tracing::error!("Error creating checkout session: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)

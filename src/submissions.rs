@@ -149,5 +149,7 @@ pub async fn submit(
         )));
     }
 
+    tracing::info!("Processed valid submission.");
+
     Ok(Redirect::to("/submissions/success"))
 }
