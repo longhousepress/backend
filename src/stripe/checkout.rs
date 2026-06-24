@@ -9,7 +9,7 @@ use sqlx::sqlite::SqlitePool;
 
 use crate::config::Config;
 use crate::db::{check_files_exist, create_order};
-use crate::models::Currency;
+use crate::models::{Currency, Language};
 use crate::state::AppState;
 
 pub async fn checkout(
@@ -59,6 +59,7 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
     }
 
     let currency_str = req.currency.as_str();
+    let language = req.language.as_str();
     let mut resolved = Vec::with_capacity(req.items.len());
 
     for item in &req.items {
@@ -70,11 +71,12 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
         }
 
         let result = sqlx::query!(
-            "SELECT e.listed, ep.price, bl.title
+            "SELECT ep.price as \"price: Option<i64>\", el.title
              FROM editions e
+             INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = ? AND el.listed = 1
              LEFT JOIN edition_prices ep ON e.id = ep.edition_id AND ep.currency = ?
-             INNER JOIN book_localizations bl ON bl.book_id = e.book_id AND bl.language = e.language
              WHERE e.id = ?",
+            language,
             currency_str,
             item.edition_id
         )
@@ -82,14 +84,11 @@ async fn validate_checkout_request(req: &CheckoutRequest, db: &SqlitePool, stati
         .await?;
 
         let (title, price) = match result {
-            None => return Err(anyhow::anyhow!("Edition {} not found", item.edition_id)),
+            None => return Err(anyhow::anyhow!(
+                "Edition {} is not found or not available for purchase",
+                item.edition_id
+            )),
             Some(row) => {
-                if row.listed != Some(1) {
-                    return Err(anyhow::anyhow!(
-                        "Edition {} is not available for purchase",
-                        item.edition_id
-                    ));
-                }
                 let price = row.price.ok_or_else(|| anyhow::anyhow!(
                     "Edition {} does not have a price for currency {}",
                     item.edition_id,
@@ -130,10 +129,11 @@ pub async fn create_checkout_session(
     req: &CheckoutRequest,
     resolved: Vec<ResolvedCheckoutItem>,
 ) -> Result<CheckoutSession> {
+    let locale = req.language.as_url_segment();
     let checkout = StripeCheckout {
         mode: CheckoutMode::Payment,
-        success_url: format!("{}/success?session_id={{CHECKOUT_SESSION_ID}}", config.base_url),
-        cancel_url: format!("{}/failure", config.base_url),
+        success_url: format!("{}/{}/success?session_id={{CHECKOUT_SESSION_ID}}", config.base_url, locale),
+        cancel_url: format!("{}/{}/failure", config.base_url, locale),
         line_items: create_checkout_body(&resolved, &req.currency)?,
         customer_email: Some(req.email.clone()),
         client_reference_id: None,
@@ -172,7 +172,7 @@ pub async fn create_checkout_session(
 
     // Update our order row with the stripe_session_id
     let items: Vec<(i64, u8)> = req.items.iter().map(|i| (i.edition_id, i.quantity)).collect();
-    match create_order(db, &req.email, &stripe_session_id, req.currency.as_str(), &items).await
+    match create_order(db, &req.email, &stripe_session_id, req.currency.as_str(), req.language.as_str(), &items).await
     {
         Ok(_) => Ok(CheckoutSession { url }),
         // If the DB insert fails, we need to clean up the dangling session
@@ -294,6 +294,7 @@ pub enum CheckoutMode {
 pub struct CheckoutRequest {
     pub email: String,
     pub currency: Currency,
+    pub language: Language,
     pub items: Vec<CheckoutItem>,
 }
 

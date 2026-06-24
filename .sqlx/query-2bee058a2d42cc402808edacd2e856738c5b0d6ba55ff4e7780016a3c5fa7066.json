@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT bc.book_id as \"book_id!: i64\",\n                el.edition_language as \"language!: String\",\n                bc.role_id as \"role_id!: i64\",\n                pl.name, p.slug, rl.name as role, pl.bio, p.birth_year, p.death_year, bc.ordinal\n         FROM book_contributors bc\n         INNER JOIN (\n             SELECT DISTINCT e.book_id, e.language as edition_language\n             FROM editions e\n             INNER JOIN edition_localizations loc ON loc.edition_id = e.id AND loc.language = $1 AND loc.listed = 1\n         ) el ON el.book_id = bc.book_id\n         INNER JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = $1\n         INNER JOIN role_localizations rl ON rl.role_id = bc.role_id AND rl.language = $1\n         INNER JOIN persons p ON bc.person_id = p.id\n         ORDER BY bc.book_id, bc.ordinal ASC NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "name": "book_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "language!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "role_id!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "bio",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "birth_year",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "death_year",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "ordinal",
+        "ordinal": 9,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2bee058a2d42cc402808edacd2e856738c5b0d6ba55ff4e7780016a3c5fa7066"
+}

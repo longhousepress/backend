@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT f.edition_id as \"edition_id!: i64\",\n                f.file_path as \"file_path!: String\",\n                ff.name as \"format_name!: String\"\n         FROM files f\n         INNER JOIN file_formats ff ON f.file_format_id = ff.id\n         INNER JOIN editions e ON f.edition_id = e.id\n         INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = $1 AND el.listed = 1\n         WHERE ff.name IN ('epub', 'kepub', 'azw3', 'pdf', 'sample')",
+  "describe": {
+    "columns": [
+      {
+        "name": "edition_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "file_path!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "format_name!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dd2ec88e02516fa3369dbc84eb01b798de6a8bcf3b2424ea73b30ebf99da5ddf"
+}

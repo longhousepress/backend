@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT ec.edition_id as \"edition_id!: i64\",\n                ec.role_id as \"role_id!: i64\",\n                pl.name, p.slug, rl.name as role, pl.bio, p.birth_year, p.death_year\n         FROM edition_contributors ec\n         INNER JOIN editions e ON ec.edition_id = e.id\n         INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = $1 AND el.listed = 1\n         INNER JOIN person_localizations pl ON pl.person_id = ec.person_id AND pl.language = $1\n         INNER JOIN role_localizations rl ON rl.role_id = ec.role_id AND rl.language = $1\n         INNER JOIN persons p ON ec.person_id = p.id\n         ORDER BY ec.edition_id, ec.ordinal ASC NULLS LAST",
+  "describe": {
+    "columns": [
+      {
+        "name": "edition_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "role_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "role",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "bio",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "birth_year",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "death_year",
+        "ordinal": 7,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "bb15c0e9b1c9ecaaf8bc6ff42535807b6231730e184ab410993cd96b66506de4"
+}

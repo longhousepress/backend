@@ -31,6 +31,10 @@ async fn head_handler() -> StatusCode {
     StatusCode::OK
 }
 
+async fn root_redirect() -> impl IntoResponse {
+    axum::response::Redirect::permanent("/en/")
+}
+
 async fn static_files(
     State(state): State<AppState>,
     uri: axum::http::Uri,
@@ -55,7 +59,12 @@ async fn static_files(
         None => {
             let fallback = state.public_dir.join("404.html");
             match tokio::fs::read_to_string(fallback).await {
-                Ok(html) => (StatusCode::NOT_FOUND, html).into_response(),
+                Ok(html) => (
+                    StatusCode::NOT_FOUND,
+                    [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    html,
+                )
+                    .into_response(),
                 Err(_) => (StatusCode::NOT_FOUND, "Not Found").into_response(),
             }
         }
@@ -133,7 +142,7 @@ async fn main() {
         );
 
     let app = Router::new()
-        .route("/", head(head_handler))
+        .route("/", head(head_handler).get(root_redirect))
         .nest("/api", api_routes)
         .fallback(static_files)
         .layer(cors_layer())

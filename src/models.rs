@@ -1,6 +1,34 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Language {
+    #[serde(rename = "eng")]
+    Eng,
+    #[serde(rename = "bul")]
+    Bul,
+    #[serde(rename = "kor")]
+    Kor,
+}
+
+impl Language {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Language::Eng => "eng",
+            Language::Bul => "bul",
+            Language::Kor => "kor",
+        }
+    }
+
+    pub fn as_url_segment(&self) -> &str {
+        match self {
+            Language::Eng => "en",
+            Language::Bul => "bg",
+            Language::Kor => "ko",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Currency {
     #[serde(rename = "USD")]
     Usd,
@@ -40,6 +68,7 @@ impl Currency {
 // Contributor to a book or edition
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Contributor {
+    pub role_id: i64,
     pub name: String,
     pub slug: Option<String>,
     pub role: String,
@@ -59,9 +88,6 @@ pub struct Price {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Book {
     pub id: i64,
-    pub title: String,
-    pub subtitle: Option<String>,
-    pub author: String,
     pub book_slug: String,
     pub original_language: String,
     pub original_publication_year: Option<i64>,
@@ -73,6 +99,7 @@ pub struct Book {
 pub struct Edition {
     pub id: i64,
     pub title: String,
+    pub subtitle: Option<String>,
     pub author_name: String,
     pub author_bio: Option<String>,
     pub prices: Vec<Price>,

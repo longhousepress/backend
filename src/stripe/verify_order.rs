@@ -108,8 +108,13 @@ pub async fn verify_order_endpoint(
         }
     };
 
+    let email = row.email.ok_or_else(|| {
+        tracing::error!("Email is null for paid order {}", order_id);
+        ErrorResponse::Status(StatusCode::INTERNAL_SERVER_ERROR)
+    })?;
+
     let out = SuccessReturn {
-        email: row.email.unwrap_or_default(),
+        email,
         order_reference: order_id.to_string(),
         books,
     };

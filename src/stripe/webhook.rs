@@ -104,7 +104,10 @@ pub async fn stripe_webhook(
         }
 
         // Verify email from Stripe matches the email stored in our order
-        let stored_email = order.email.unwrap_or_default();
+        let stored_email = order.email.ok_or_else(|| {
+            tracing::error!("Email is null for order {}", order_id);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
         if let Some(ref stripe_email) = customer_email {
             if stripe_email.to_lowercase() != stored_email.to_lowercase() {
                 tracing::warn!(

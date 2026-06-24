@@ -35,6 +35,7 @@ pub async fn create_order(
     email: &str,
     stripe_session_id: &str,
     currency: &str,
+    language: &str,
     items: &[(i64, u8)],
 ) -> Result<i64> {
     let mut tx = pool.begin().await?;
@@ -62,12 +63,13 @@ pub async fn create_order(
     }
 
     let res = sqlx::query(
-        "INSERT INTO orders (stripe_session_id, email, paid, total_amount, currency) VALUES (?, ?, NULL, ?, ?)",
+        "INSERT INTO orders (stripe_session_id, email, paid, total_amount, currency, language) VALUES (?, ?, NULL, ?, ?, ?)",
     )
     .bind(stripe_session_id)
     .bind(email)
     .bind(total_amount)
     .bind(currency)
+    .bind(language)
     .execute(&mut *tx)
     .await?;
 
@@ -119,8 +121,8 @@ pub async fn get_downloadable_books_for_order(
             oi.quantity as \"quantity!: i64\",
             e.id as \"edition_id!: i64\",
             b.id as \"book_id!: i64\",
-            bl.title as \"title!: String\",
-            bl.short_description as \"short_description!: String\",
+            el.title as \"title!: String\",
+            el.short_description as \"short_description!: String\",
             GROUP_CONCAT(pl.name, ', ') as \"author_names!: String\",
             e.cover_filepath as \"cover!: String\",
             f.name as \"format!: String\",
@@ -128,15 +130,15 @@ pub async fn get_downloadable_books_for_order(
             b.original_language as \"original_language!: String\",
             b.slug as \"slug!: String\"
          FROM order_items oi
+         INNER JOIN orders o ON o.id = oi.order_id
          INNER JOIN editions e ON oi.edition_id = e.id
          INNER JOIN books b ON e.book_id = b.id
-         INNER JOIN book_localizations bl ON bl.book_id = b.id AND bl.language = e.language
+         INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = o.language
          INNER JOIN formats f ON e.format_id = f.id
-         LEFT JOIN book_contributors bc ON bc.book_id = b.id
-         LEFT JOIN roles r ON bc.role_id = r.id AND r.name = 'Author'
-         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = e.language
+         LEFT JOIN book_contributors bc ON bc.book_id = b.id AND bc.role_id = 1
+         LEFT JOIN person_localizations pl ON pl.person_id = bc.person_id AND pl.language = o.language
          WHERE oi.order_id = ?
-         GROUP BY oi.id, oi.quantity, e.id, b.id, bl.title, bl.short_description, e.cover_filepath, f.name, e.language, b.slug, b.original_language
+         GROUP BY oi.id, oi.quantity, e.id, b.id, el.title, el.short_description, e.cover_filepath, f.name, e.language, b.slug, b.original_language
          ORDER BY b.id, e.id",
         order_id
     )
@@ -201,6 +203,7 @@ pub async fn get_downloadable_books_for_order(
             let edition = Edition {
                 id: oi_row.edition_id,
                 title: oi_row.title.clone(),
+                subtitle: None,
                 author_name: oi_row.author_names.clone(),
                 author_bio: None,
                 prices: Vec::new(),
@@ -228,9 +231,6 @@ pub async fn get_downloadable_books_for_order(
 
             books.push(Book {
                 id: oi_row.book_id,
-                title: oi_row.title.clone(),
-                subtitle: None,
-                author: oi_row.author_names.clone(),
                 book_slug: oi_row.slug.clone(),
                 original_language: oi_row.original_language.clone(),
                 original_publication_year: None,

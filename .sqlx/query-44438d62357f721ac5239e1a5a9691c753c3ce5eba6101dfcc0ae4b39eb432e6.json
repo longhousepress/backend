@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT ep.edition_id as \"edition_id!: i64\", ep.currency, ep.price\n         FROM edition_prices ep\n         INNER JOIN editions e ON ep.edition_id = e.id AND e.listed = 1",
+  "query": "SELECT ep.edition_id as \"edition_id!: i64\", ep.currency, ep.price\n         FROM edition_prices ep\n         INNER JOIN editions e ON ep.edition_id = e.id\n         INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = $1 AND el.listed = 1",
   "describe": {
     "columns": [
       {
@@ -20,7 +20,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "0e2e21ad00d133f9cb7d044b0a69a2f5063bee1bfb0b75a045ca0ab11d601361"
+  "hash": "44438d62357f721ac5239e1a5a9691c753c3ce5eba6101dfcc0ae4b39eb432e6"
 }
