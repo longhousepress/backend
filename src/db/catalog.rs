@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use sqlx::sqlite::SqlitePool;
 
-use crate::models::{Book, Contributor, Currency, Edition, File, FileFormat, Price};
+use crate::models::{Book, CollectionMembership, Contributor, Currency, Edition, File, FileFormat, Price};
 
 struct FileEntry {
     file_path: String,
@@ -65,6 +65,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str, language: &str) -> Re
         files_by_edition,
         book_categories_map,
         book_contributors_map,
+        book_collections_map,
     ) = tokio::try_join!(
         fetch_all_edition_contributors(db, language),
         fetch_all_edition_prices(db, language),
@@ -72,6 +73,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str, language: &str) -> Re
         fetch_all_files(db, language),
         fetch_all_book_categories(db, language),
         fetch_all_book_contributors(db, language),
+        fetch_all_book_collections(db, language),
     )?;
 
     let mut books_map: HashMap<i64, Book> = HashMap::new();
@@ -160,6 +162,7 @@ pub async fn load_books(db: &SqlitePool, static_dir: &str, language: &str) -> Re
                 .get(&(r.book_id, r.language.clone()))
                 .cloned()
                 .unwrap_or_default(),
+            collection: book_collections_map.get(&r.book_id).cloned(),
             editions: Vec::new(),
         });
 
@@ -299,6 +302,39 @@ async fn fetch_all_book_categories(db: &SqlitePool, language: &str) -> Result<Ha
     let mut map: HashMap<i64, Vec<String>> = HashMap::new();
     for r in rows {
         map.entry(r.book_id).or_default().push(r.name);
+    }
+    Ok(map)
+}
+
+async fn fetch_all_book_collections(
+    db: &SqlitePool,
+    language: &str,
+) -> Result<HashMap<i64, CollectionMembership>> {
+    let rows = sqlx::query!(
+        "SELECT DISTINCT cb.book_id as \"book_id!: i64\",
+                c.slug as \"slug!: String\",
+                cl.title as \"title!: String\",
+                cb.ordinal as \"ordinal!: i64\"
+         FROM collection_books cb
+         INNER JOIN collections c ON c.id = cb.collection_id
+         INNER JOIN collection_localizations cl ON cl.collection_id = cb.collection_id AND cl.language = $1
+         INNER JOIN editions e ON e.book_id = cb.book_id
+         INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = $1 AND el.listed = 1",
+        language
+    )
+    .fetch_all(db)
+    .await?;
+
+    let mut map = HashMap::new();
+    for r in rows {
+        map.insert(
+            r.book_id,
+            CollectionMembership {
+                slug: r.slug,
+                title: r.title,
+                ordinal: r.ordinal,
+            },
+        );
     }
     Ok(map)
 }

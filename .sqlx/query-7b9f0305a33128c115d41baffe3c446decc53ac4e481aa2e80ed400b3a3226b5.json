@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT cb.book_id as \"book_id!: i64\",\n                c.slug as \"slug!: String\",\n                cl.title as \"title!: String\",\n                cb.ordinal as \"ordinal!: i64\"\n         FROM collection_books cb\n         INNER JOIN collections c ON c.id = cb.collection_id\n         INNER JOIN collection_localizations cl ON cl.collection_id = cb.collection_id AND cl.language = $1\n         INNER JOIN editions e ON e.book_id = cb.book_id\n         INNER JOIN edition_localizations el ON el.edition_id = e.id AND el.language = $1 AND el.listed = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "book_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "slug!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "ordinal!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7b9f0305a33128c115d41baffe3c446decc53ac4e481aa2e80ed400b3a3226b5"
+}

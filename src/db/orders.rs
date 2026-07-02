@@ -235,6 +235,7 @@ pub async fn get_downloadable_books_for_order(
                 original_language: oi_row.original_language.clone(),
                 original_publication_year: None,
                 contributors: Vec::new(),
+                collection: None,
                 editions: vec![edition],
             });
         }

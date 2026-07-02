@@ -84,6 +84,14 @@ pub struct Price {
     pub amount: i64,
 }
 
+// A book's membership in a collection (grouping-only, e.g. a trilogy)
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CollectionMembership {
+    pub slug: String,
+    pub title: String,
+    pub ordinal: i64,
+}
+
 // For catalog listing - all editions with filter-relevant fields
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Book {
@@ -92,6 +100,7 @@ pub struct Book {
     pub original_language: String,
     pub original_publication_year: Option<i64>,
     pub contributors: Vec<Contributor>,
+    pub collection: Option<CollectionMembership>,
     pub editions: Vec<Edition>,
 }
 
